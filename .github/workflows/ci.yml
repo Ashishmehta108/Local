@@ -1,0 +1,51 @@
+name: verify
+on:
+  push:
+  pull_request:
+
+jobs:
+  coordinator:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: filefinder_test
+          POSTGRES_USER: filefinder
+          POSTGRES_PASSWORD: filefinder
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U filefinder -d filefinder_test"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with: { version: 11.5.0 }
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: pnpm }
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm build
+      - run: pnpm test
+      - run: pnpm test:integration
+        env:
+          TEST_DATABASE_URL: postgres://filefinder:filefinder@127.0.0.1:5432/filefinder_test
+      - run: pnpm --filter @filefinder/desktop build
+
+  windows-agent-and-installer:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with: { version: 11.5.0 }
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: pnpm }
+      - uses: dtolnay/rust-toolchain@stable
+      - run: pnpm install --frozen-lockfile
+      - run: cargo test -p filefinder-agent
+      - shell: pwsh
+        run: ./scripts/Prepare-WindowsDesktopRelease.ps1
+      - uses: actions/upload-artifact@v4
+        with:
+          name: filefinder-windows-installers
+          path: target/x86_64-pc-windows-msvc/release/bundle/**
+

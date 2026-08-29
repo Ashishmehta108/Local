@@ -1,0 +1,25 @@
+# User UI/API hostname. Replace internal TLS with a company certificate when available.
+filefinder.office.local {
+  tls internal
+  reverse_proxy 127.0.0.1:7443 {
+    header_up -X-FileFinder-Client-Fingerprint
+  }
+  encode zstd gzip
+  header Strict-Transport-Security "max-age=31536000"
+}
+
+# Agent-only hostname. API requests and WebSocket upgrades require device mTLS.
+agents.filefinder.office.local {
+  tls internal {
+    client_auth {
+      mode require_and_verify
+      trust_pool file {
+        pem_file C:/ProgramData/FileFinder/pki/device-ca.crt.pem
+      }
+    }
+  }
+  reverse_proxy 127.0.0.1:7443 {
+    header_up X-FileFinder-Client-Fingerprint {http.request.tls.client.fingerprint}
+  }
+  request_body { max_size 4MB }
+}
