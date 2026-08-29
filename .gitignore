@@ -4,3 +4,6 @@ target/
 .env
 coverage/
 postgres-data/
+*.tsbuildinfo
+vite.config.js
+vite.config.d.ts
