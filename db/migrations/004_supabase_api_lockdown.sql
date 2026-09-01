@@ -1,0 +1,35 @@
+-- FileFinder accesses PostgreSQL only from the trusted coordinator. Supabase's
+-- browser-facing roles must never query FileFinder metadata through the Data API.
+
+ALTER TABLE schema_migrations ENABLE ROW LEVEL SECURITY;
+ALTER TABLE organisations ENABLE ROW LEVEL SECURITY;
+ALTER TABLE users ENABLE ROW LEVEL SECURITY;
+ALTER TABLE refresh_sessions ENABLE ROW LEVEL SECURITY;
+ALTER TABLE enrolments ENABLE ROW LEVEL SECURITY;
+ALTER TABLE devices ENABLE ROW LEVEL SECURITY;
+ALTER TABLE device_tokens ENABLE ROW LEVEL SECURITY;
+ALTER TABLE indexed_roots ENABLE ROW LEVEL SECURITY;
+ALTER TABLE files ENABLE ROW LEVEL SECURITY;
+ALTER TABLE agent_events ENABLE ROW LEVEL SECURITY;
+ALTER TABLE audit_log ENABLE ROW LEVEL SECURITY;
+ALTER TABLE reconciliation_sessions ENABLE ROW LEVEL SECURITY;
+ALTER TABLE reconciliation_entries ENABLE ROW LEVEL SECURITY;
+ALTER TABLE device_commands ENABLE ROW LEVEL SECURITY;
+
+DO $$
+DECLARE
+  api_role text;
+BEGIN
+  FOREACH api_role IN ARRAY ARRAY['anon', 'authenticated'] LOOP
+    IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = api_role) THEN
+      EXECUTE format('REVOKE USAGE ON SCHEMA public FROM %I', api_role);
+      EXECUTE format('REVOKE ALL PRIVILEGES ON ALL TABLES IN SCHEMA public FROM %I', api_role);
+      EXECUTE format('REVOKE ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public FROM %I', api_role);
+      EXECUTE format('REVOKE ALL PRIVILEGES ON ALL FUNCTIONS IN SCHEMA public FROM %I', api_role);
+      EXECUTE format('ALTER DEFAULT PRIVILEGES IN SCHEMA public REVOKE ALL ON TABLES FROM %I', api_role);
+      EXECUTE format('ALTER DEFAULT PRIVILEGES IN SCHEMA public REVOKE ALL ON SEQUENCES FROM %I', api_role);
+      EXECUTE format('ALTER DEFAULT PRIVILEGES IN SCHEMA public REVOKE ALL ON FUNCTIONS FROM %I', api_role);
+    END IF;
+  END LOOP;
+END
+$$;

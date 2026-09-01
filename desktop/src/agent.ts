@@ -1,14 +1,17 @@
 import { invoke } from "@tauri-apps/api/core";
 
 export type AgentStatus = { configured: boolean; running: boolean };
+export type AgentIdentity = { publicKey: string };
 
 type ConfigureAgent = {
   coordinatorUrl: string;
   agentToken: string;
   commandSigningPublicKey: string;
-  clientCertificatePem: string;
-  clientPrivateKeyPem: string;
-  coordinatorCaPem: string;
+  requireRequestSignatures: boolean;
+  requireClientCertificate: boolean;
+  clientCertificatePem: string | null;
+  clientPrivateKeyPem: string | null;
+  coordinatorCaPem: string | null;
   rootId: string;
   rootPath: string;
 };
@@ -25,6 +28,10 @@ export function startAgent(): Promise<AgentStatus> {
   return invoke("start_agent");
 }
 
+export function createAgentIdentity(): Promise<AgentIdentity> {
+  return invoke("create_agent_identity");
+}
+
 export function configureAgent(input: ConfigureAgent): Promise<AgentStatus> {
   return invoke("configure_agent", {
     config: {
@@ -32,9 +39,12 @@ export function configureAgent(input: ConfigureAgent): Promise<AgentStatus> {
       agentToken: input.agentToken,
       protectedAgentToken: null,
       commandSigningPublicKey: input.commandSigningPublicKey,
+      requireRequestSignatures: input.requireRequestSignatures,
+      protectedDeviceSigningKey: null,
+      requireClientCertificate: input.requireClientCertificate,
       clientCertificatePem: input.clientCertificatePem,
       clientPrivateKeyPem: input.clientPrivateKeyPem,
-      coordinatorCaPem: input.coordinatorCaPem || null,
+      coordinatorCaPem: input.coordinatorCaPem,
       dataDirectory: "",
       roots: [{ id: input.rootId, path: input.rootPath }],
       batchSize: 500

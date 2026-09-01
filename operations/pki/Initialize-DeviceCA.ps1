@@ -3,6 +3,12 @@ param(
   [string]$OpenSsl = "openssl.exe"
 )
 $ErrorActionPreference = "Stop"
+$resolvedOpenSsl = Get-Command $OpenSsl -ErrorAction SilentlyContinue
+if (-not $resolvedOpenSsl) {
+  $gitOpenSsl = "C:\Program Files\Git\usr\bin\openssl.exe"
+  if (-not (Test-Path $gitOpenSsl)) { throw "OpenSSL was not found. Install OpenSSL or Git for Windows." }
+  $OpenSsl = $gitOpenSsl
+}
 New-Item -ItemType Directory -Force -Path $OutputDirectory | Out-Null
 $key = Join-Path $OutputDirectory "device-ca.key.pem"
 $cert = Join-Path $OutputDirectory "device-ca.crt.pem"

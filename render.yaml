@@ -1,0 +1,45 @@
+services:
+  - type: web
+    name: filefinder-coordinator
+    runtime: node
+    plan: 0.5c-512mb
+    numInstances: 1
+    buildCommand: corepack enable && pnpm install --frozen-lockfile && pnpm build
+    preDeployCommand: pnpm migrate
+    startCommand: pnpm start
+    healthCheckPath: /readyz
+    maxShutdownDelaySeconds: 60
+    envVars:
+      - key: NODE_VERSION
+        value: 22.18.0
+      - key: NODE_ENV
+        value: production
+      - key: HOST
+        value: 0.0.0.0
+      - key: TRUST_PROXY
+        value: "true"
+      - key: DATABASE_URL
+        sync: false
+      # Use the Supabase postgres/admin Session pooler URI only for migrations.
+      - key: MIGRATION_DATABASE_URL
+        sync: false
+      - key: DATABASE_POOL_MAX
+        value: "10"
+      - key: DATABASE_IDLE_TIMEOUT_MS
+        value: "30000"
+      - key: DATABASE_CONNECT_TIMEOUT_MS
+        value: "10000"
+      - key: JWT_SECRET
+        generateValue: true
+      - key: BOOTSTRAP_TOKEN
+        generateValue: true
+      - key: COMMAND_SIGNING_PRIVATE_KEY
+        sync: false
+      - key: UI_ORIGINS
+        value: https://tauri.localhost,tauri://localhost
+      - key: REQUIRE_AGENT_SIGNATURES
+        value: "true"
+      # Render terminates TLS. Agent tokens are combined with device-local
+      # Ed25519 proof-of-possession instead of Caddy mTLS headers.
+      - key: REQUIRE_AGENT_CERTIFICATE
+        value: "false"

@@ -27,9 +27,11 @@ async fn main() -> Result<()> {
     fs::create_dir_all(&config.data_directory)?;
     let mut journal = Journal::open(&config.data_directory.join("journal.sqlite3"))?;
     let agent_token = config.resolved_agent_token()?;
+    let device_signing_key = config.resolved_device_signing_key()?;
     let client = CoordinatorClient::new(
         config.coordinator_url.clone(),
         agent_token,
+        device_signing_key,
         config.client_certificate_pem.as_deref(),
         config.client_private_key_pem.as_deref(),
         config.coordinator_ca_pem.as_deref(),

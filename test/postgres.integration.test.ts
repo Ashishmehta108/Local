@@ -12,11 +12,13 @@ integration("PostgreSQL coordinator flow", () => {
   const pool = new Pool({ connectionString: databaseUrl });
   const signingKey = generateKeyPairSync("ed25519").privateKey.export({ format: "der", type: "pkcs8" }).toString("base64");
   const config: Config = {
-    NODE_ENV: "test", HOST: "127.0.0.1", PORT: 7443, DATABASE_URL: databaseUrl!,
+    NODE_ENV: "test", HOST: "127.0.0.1", PORT: 7443, TRUST_PROXY: false, DATABASE_URL: databaseUrl!,
+    DATABASE_POOL_MAX: 2, DATABASE_IDLE_TIMEOUT_MS: 30000, DATABASE_CONNECT_TIMEOUT_MS: 10000,
     JWT_SECRET: "integration-jwt-secret-with-at-least-32-characters",
     BOOTSTRAP_TOKEN: "integration-bootstrap-token-long-enough",
     COMMAND_SIGNING_PRIVATE_KEY: signingKey,
     UI_ORIGINS: "https://tauri.localhost",
+    REQUIRE_AGENT_SIGNATURES: false,
     REQUIRE_AGENT_CERTIFICATE: false
   };
   const server = createServer(config, pool);

@@ -27,8 +27,8 @@ export class CoordinatorApi {
 
   devices(): Promise<{ items: Device[] }> { return this.request("/api/v1/devices"); }
 
-  enrolDevice(code: string, name: string, publicKey: string, certificateFingerprint: string): Promise<EnrolledDevice> {
-    return this.request("/api/v1/devices/enrol", { method: "POST", body: JSON.stringify({ code, name, os: "Windows", publicKey, certificateFingerprint }) }, false);
+  enrolDevice(code: string, name: string, publicKey: string, certificateFingerprint?: string): Promise<EnrolledDevice> {
+    return this.request("/api/v1/devices/enrol", { method: "POST", body: JSON.stringify({ code, name, os: "Windows", publicKey, ...(certificateFingerprint ? { certificateFingerprint } : {}) }) }, false);
   }
 
   addRoot(deviceId: string, canonicalPath: string): Promise<{ id: string }> {

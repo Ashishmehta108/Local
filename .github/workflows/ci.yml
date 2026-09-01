@@ -6,17 +6,6 @@ on:
 jobs:
   coordinator:
     runs-on: ubuntu-latest
-    services:
-      postgres:
-        image: postgres:16-alpine
-        env:
-          POSTGRES_DB: filefinder_test
-          POSTGRES_USER: filefinder
-          POSTGRES_PASSWORD: filefinder
-        ports: ["5432:5432"]
-        options: >-
-          --health-cmd "pg_isready -U filefinder -d filefinder_test"
-          --health-interval 5s --health-timeout 5s --health-retries 10
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
@@ -24,6 +13,11 @@ jobs:
       - uses: actions/setup-node@v4
         with: { node-version: 22, cache: pnpm }
       - run: pnpm install --frozen-lockfile
+      - name: Start native PostgreSQL test service
+        run: |
+          sudo systemctl start postgresql.service
+          sudo -u postgres psql -v ON_ERROR_STOP=1 -c "CREATE USER filefinder WITH PASSWORD 'filefinder';"
+          sudo -u postgres createdb -O filefinder filefinder_test
       - run: pnpm build
       - run: pnpm test
       - run: pnpm test:integration

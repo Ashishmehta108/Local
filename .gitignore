@@ -7,3 +7,12 @@ postgres-data/
 *.tsbuildinfo
 vite.config.js
 vite.config.d.ts
+
+# Locally downloaded/runtime-generated deployment artifacts
+caddy.exe
+wireguard-*.msi
+coordinator-runtime*.log
+desktop/src-tauri/app-icon.png
+desktop/src-tauri/binaries/*.exe
+desktop/src-tauri/gen/
+output/friend-installers/

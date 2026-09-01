@@ -21,5 +21,7 @@ agents.filefinder.office.local {
   reverse_proxy 127.0.0.1:7443 {
     header_up X-FileFinder-Client-Fingerprint {http.request.tls.client.fingerprint}
   }
-  request_body { max_size 4MB }
+  request_body {
+    max_size 4MB
+  }
 }

@@ -3,10 +3,10 @@ use base64::Engine;
 
 #[cfg(windows)]
 pub fn protect_secret(secret: &str) -> Result<String> {
+    use windows_sys::Win32::Foundation::LocalFree;
     use windows_sys::Win32::Security::Cryptography::{
         CRYPT_INTEGER_BLOB, CRYPTPROTECT_UI_FORBIDDEN, CryptProtectData,
     };
-    use windows_sys::Win32::System::Memory::LocalFree;
 
     let bytes = secret.as_bytes();
     let mut input = CRYPT_INTEGER_BLOB {
@@ -41,10 +41,10 @@ pub fn protect_secret(secret: &str) -> Result<String> {
 
 #[cfg(windows)]
 pub fn unprotect_secret(encoded: &str) -> Result<String> {
+    use windows_sys::Win32::Foundation::LocalFree;
     use windows_sys::Win32::Security::Cryptography::{
         CRYPT_INTEGER_BLOB, CRYPTPROTECT_UI_FORBIDDEN, CryptUnprotectData,
     };
-    use windows_sys::Win32::System::Memory::LocalFree;
 
     let mut protected = base64::engine::general_purpose::STANDARD.decode(encoded)?;
     let mut input = CRYPT_INTEGER_BLOB {

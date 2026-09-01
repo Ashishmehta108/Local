@@ -2,8 +2,10 @@ import Fastify, { type FastifyInstance, type FastifyRequest } from "fastify";
 import jwt from "@fastify/jwt";
 import websocket from "@fastify/websocket";
 import cors from "@fastify/cors";
+import rateLimit from "@fastify/rate-limit";
 import type { Pool, PoolClient } from "pg";
 import type WebSocket from "ws";
+import { createPublicKey, verify as verifySignature } from "node:crypto";
 import { z } from "zod";
 import { hashSecret, normalizeEmail, normalizeSearch, opaqueToken, tokenHash, verifySecret } from "./auth.js";
 import type { Config } from "./config.js";
@@ -43,7 +45,7 @@ const commandAckSchema = z.object({
 });
 
 type UserClaims = { sub: string; organisationId: string; role: "ADMIN" | "MEMBER"; kind: "user" };
-type Agent = { deviceId: string; organisationId: string; state: "ACTIVE" | "PAUSED" | "REVOKED"; certificateFingerprint: string | null };
+type Agent = { deviceId: string; organisationId: string; state: "ACTIVE" | "PAUSED" | "REVOKED"; certificateFingerprint: string | null; publicKey: string };
 
 function apiError(reply: { code: (statusCode: number) => { send: (payload: unknown) => unknown } }, statusCode: number, code: string, message: string) {
   return reply.code(statusCode).send({ error: { code, message } });
@@ -63,27 +65,53 @@ async function requireAdmin(request: FastifyRequest, reply: Parameters<typeof ap
   return user;
 }
 
-async function requireAgent(request: FastifyRequest, pool: Pool, requireCertificate: boolean): Promise<Agent | null> {
+function devicePublicKey(encoded: string) {
+  const key = createPublicKey({ key: Buffer.from(encoded, "base64"), format: "der", type: "spki" });
+  if (key.asymmetricKeyType !== "ed25519") throw new Error("Device public key must be Ed25519");
+  return key;
+}
+
+async function requireAgent(request: FastifyRequest, pool: Pool, config: Config, replayGuard: Map<string, number>): Promise<Agent | null> {
   const header = request.headers.authorization;
   if (!header?.startsWith("Bearer ")) return null;
   const token = header.slice("Bearer ".length);
   const result = await pool.query<Agent>(
-    `SELECT d.id AS "deviceId", d.organisation_id AS "organisationId", d.state, d.certificate_fingerprint AS "certificateFingerprint"
+    `SELECT d.id AS "deviceId", d.organisation_id AS "organisationId", d.state, d.certificate_fingerprint AS "certificateFingerprint", d.public_key AS "publicKey"
        FROM device_tokens dt JOIN devices d ON d.id = dt.device_id
       WHERE dt.token_hash = $1 AND dt.revoked_at IS NULL`,
     [tokenHash(token)]
   );
   const agent = result.rows[0] ?? null;
   if (!agent) return null;
-  if (requireCertificate) {
+  if (config.REQUIRE_AGENT_CERTIFICATE) {
     const presented = request.headers["x-filefinder-client-fingerprint"];
     if (typeof presented !== "string" || !agent.certificateFingerprint || presented.toLowerCase() !== agent.certificateFingerprint.toLowerCase()) return null;
+  }
+  if (config.REQUIRE_AGENT_SIGNATURES) {
+    const timestamp = request.headers["x-filefinder-timestamp"];
+    const nonce = request.headers["x-filefinder-nonce"];
+    const signature = request.headers["x-filefinder-signature"];
+    if (typeof timestamp !== "string" || typeof nonce !== "string" || typeof signature !== "string") return null;
+    if (!/^\d{10}$/.test(timestamp) || !/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(nonce)) return null;
+    const issuedAt = Number(timestamp) * 1000;
+    const now = Date.now();
+    if (!Number.isSafeInteger(issuedAt) || Math.abs(now - issuedAt) > 90_000) return null;
+    for (const [key, expiresAt] of replayGuard) if (expiresAt <= now) replayGuard.delete(key);
+    const replayKey = `${agent.deviceId}:${nonce}`;
+    if (replayGuard.has(replayKey)) return null;
+    const message = `${timestamp}\n${nonce}\n${request.method}\n${request.url}`;
+    try {
+      if (!verifySignature(null, Buffer.from(message), devicePublicKey(agent.publicKey), Buffer.from(signature, "base64"))) return null;
+    } catch {
+      return null;
+    }
+    replayGuard.set(replayKey, now + 120_000);
   }
   return agent;
 }
 
 export function createServer(config: Config, pool: Pool): FastifyInstance {
-  const app = Fastify({ logger: config.NODE_ENV !== "test", bodyLimit: 4 * 1024 * 1024 });
+  const app = Fastify({ logger: config.NODE_ENV !== "test", bodyLimit: 4 * 1024 * 1024, trustProxy: config.TRUST_PROXY });
   app.register(jwt, { secret: config.JWT_SECRET });
   const allowedOrigins = new Set(config.UI_ORIGINS.split(",").map((origin) => origin.trim()));
   app.register(cors, {
@@ -93,8 +121,10 @@ export function createServer(config: Config, pool: Pool): FastifyInstance {
     }
   });
   app.register(websocket);
+  app.register(rateLimit, { global: false, max: 100, timeWindow: "1 minute", ipv6Subnet: 64 });
   const signer = commandSigner(config.COMMAND_SIGNING_PRIVATE_KEY);
   const agentSockets = new Map<string, Set<WebSocket>>();
+  const requestReplayGuard = new Map<string, number>();
 
   function notifyAgent(deviceId: string, message: Record<string, unknown>) {
     const payload = JSON.stringify(message);
@@ -129,7 +159,7 @@ export function createServer(config: Config, pool: Pool): FastifyInstance {
   app.get("/healthz", async () => ({ status: "ok" }));
   app.get("/api/v1/coordinator/identity", async () => ({ commandSigningPublicKey: signer.publicKeyDerBase64, algorithm: "Ed25519" }));
   app.get("/api/v1/agent/live", { websocket: true }, async (socket, request) => {
-    const agent = await requireAgent(request, pool, config.REQUIRE_AGENT_CERTIFICATE);
+    const agent = await requireAgent(request, pool, config, requestReplayGuard);
     if (!agent || agent.state !== "ACTIVE") {
       socket.close(1008, "Device authentication failed");
       return;
@@ -164,7 +194,7 @@ export function createServer(config: Config, pool: Pool): FastifyInstance {
     }
   });
 
-  app.post("/api/v1/auth/bootstrap", async (request, reply) => {
+  app.post("/api/v1/auth/bootstrap", { config: { rateLimit: { max: 5, timeWindow: "1 hour" } } }, async (request, reply) => {
     const input = bootstrapSchema.parse(request.body);
     if (input.bootstrapToken !== config.BOOTSTRAP_TOKEN) return apiError(reply, 401, "INVALID_BOOTSTRAP_TOKEN", "Bootstrap token is invalid.");
     const result = await transaction(pool, async (client) => {
@@ -184,7 +214,7 @@ export function createServer(config: Config, pool: Pool): FastifyInstance {
     return reply.code(201).send({ ...session, user: { id: result.id, role: result.role } });
   });
 
-  app.post("/api/v1/auth/login", async (request, reply) => {
+  app.post("/api/v1/auth/login", { config: { rateLimit: { max: 10, timeWindow: "10 minutes" } } }, async (request, reply) => {
     const input = loginSchema.parse(request.body);
     const user = await pool.query<{ id: string; organisation_id: string; role: "ADMIN" | "MEMBER"; password_hash: string }>(
       "SELECT id, organisation_id, role, password_hash FROM users WHERE email = $1 LIMIT 1",
@@ -196,7 +226,7 @@ export function createServer(config: Config, pool: Pool): FastifyInstance {
     return { ...session, user: { id: found.id, role: found.role } };
   });
 
-  app.post("/api/v1/auth/refresh", async (request, reply) => {
+  app.post("/api/v1/auth/refresh", { config: { rateLimit: { max: 60, timeWindow: "1 minute" } } }, async (request, reply) => {
     const input = refreshSchema.parse(request.body);
     const result = await transaction(pool, async (client) => {
       const current = await client.query<{ id: string; user_id: string; organisation_id: string; role: "ADMIN" | "MEMBER" }>(
@@ -261,8 +291,15 @@ export function createServer(config: Config, pool: Pool): FastifyInstance {
     return reply.code(201).send({ id: row.rows[0].id, code, expiresAt: expiresAt.toISOString() });
   });
 
-  app.post("/api/v1/devices/enrol", async (request, reply) => {
+  app.post("/api/v1/devices/enrol", { config: { rateLimit: { max: 10, timeWindow: "10 minutes" } } }, async (request, reply) => {
     const input = deviceEnrolSchema.parse(request.body);
+    if (config.REQUIRE_AGENT_SIGNATURES) {
+      try {
+        devicePublicKey(input.publicKey);
+      } catch {
+        return apiError(reply, 400, "INVALID_DEVICE_KEY", "Device public key must be a valid Ed25519 SPKI key.");
+      }
+    }
     const outcome = await transaction(pool, async (client) => {
       const enrolment = await client.query<{ id: string; organisation_id: string }>(
         `SELECT id, organisation_id FROM enrolments
@@ -301,7 +338,7 @@ export function createServer(config: Config, pool: Pool): FastifyInstance {
   });
 
   app.post("/api/v1/agent/events/batch", async (request, reply) => {
-    const agent = await requireAgent(request, pool, config.REQUIRE_AGENT_CERTIFICATE);
+    const agent = await requireAgent(request, pool, config, requestReplayGuard);
     if (!agent) return apiError(reply, 401, "INVALID_DEVICE_TOKEN", "Device authentication failed.");
     if (agent.state !== "ACTIVE") return apiError(reply, 403, "DEVICE_NOT_ACTIVE", "The device is not active.");
     const input = batchSchema.parse(request.body);
@@ -316,7 +353,7 @@ export function createServer(config: Config, pool: Pool): FastifyInstance {
   });
 
   app.post("/api/v1/agent/heartbeat", async (request, reply) => {
-    const agent = await requireAgent(request, pool, config.REQUIRE_AGENT_CERTIFICATE);
+    const agent = await requireAgent(request, pool, config, requestReplayGuard);
     if (!agent) return apiError(reply, 401, "INVALID_DEVICE_TOKEN", "Device authentication failed.");
     if (agent.state !== "ACTIVE") return apiError(reply, 403, "DEVICE_NOT_ACTIVE", "The device is not active.");
     await pool.query("UPDATE devices SET last_seen_at = now() WHERE id = $1", [agent.deviceId]);
@@ -324,7 +361,7 @@ export function createServer(config: Config, pool: Pool): FastifyInstance {
   });
 
   app.post("/api/v1/agent/reconciliations", async (request, reply) => {
-    const agent = await requireAgent(request, pool, config.REQUIRE_AGENT_CERTIFICATE);
+    const agent = await requireAgent(request, pool, config, requestReplayGuard);
     if (!agent) return apiError(reply, 401, "INVALID_DEVICE_TOKEN", "Device authentication failed.");
     if (agent.state !== "ACTIVE") return apiError(reply, 403, "DEVICE_NOT_ACTIVE", "The device is not active.");
     const { rootId } = z.object({ rootId: z.string().uuid() }).parse(request.body);
@@ -339,7 +376,7 @@ export function createServer(config: Config, pool: Pool): FastifyInstance {
   });
 
   app.post("/api/v1/agent/reconciliations/:sessionId/chunks", async (request, reply) => {
-    const agent = await requireAgent(request, pool, config.REQUIRE_AGENT_CERTIFICATE);
+    const agent = await requireAgent(request, pool, config, requestReplayGuard);
     if (!agent) return apiError(reply, 401, "INVALID_DEVICE_TOKEN", "Device authentication failed.");
     if (agent.state !== "ACTIVE") return apiError(reply, 403, "DEVICE_NOT_ACTIVE", "The device is not active.");
     const { sessionId } = z.object({ sessionId: z.string().uuid() }).parse(request.params);
@@ -350,7 +387,7 @@ export function createServer(config: Config, pool: Pool): FastifyInstance {
   });
 
   app.post("/api/v1/agent/reconciliations/:sessionId/complete", async (request, reply) => {
-    const agent = await requireAgent(request, pool, config.REQUIRE_AGENT_CERTIFICATE);
+    const agent = await requireAgent(request, pool, config, requestReplayGuard);
     if (!agent) return apiError(reply, 401, "INVALID_DEVICE_TOKEN", "Device authentication failed.");
     if (agent.state !== "ACTIVE") return apiError(reply, 403, "DEVICE_NOT_ACTIVE", "The device is not active.");
     const { sessionId } = z.object({ sessionId: z.string().uuid() }).parse(request.params);
@@ -360,7 +397,7 @@ export function createServer(config: Config, pool: Pool): FastifyInstance {
   });
 
   app.get("/api/v1/agent/commands", async (request, reply) => {
-    const agent = await requireAgent(request, pool, config.REQUIRE_AGENT_CERTIFICATE);
+    const agent = await requireAgent(request, pool, config, requestReplayGuard);
     if (!agent) return apiError(reply, 401, "INVALID_DEVICE_TOKEN", "Device authentication failed.");
     if (agent.state !== "ACTIVE") return apiError(reply, 403, "DEVICE_NOT_ACTIVE", "The device is not active.");
     const commands = await transaction(pool, async (client) => {
@@ -397,7 +434,7 @@ export function createServer(config: Config, pool: Pool): FastifyInstance {
   });
 
   app.post("/api/v1/agent/commands/:commandId/ack", async (request, reply) => {
-    const agent = await requireAgent(request, pool, config.REQUIRE_AGENT_CERTIFICATE);
+    const agent = await requireAgent(request, pool, config, requestReplayGuard);
     if (!agent) return apiError(reply, 401, "INVALID_DEVICE_TOKEN", "Device authentication failed.");
     const { commandId } = z.object({ commandId: z.string().uuid() }).parse(request.params);
     const input = commandAckSchema.parse(request.body);

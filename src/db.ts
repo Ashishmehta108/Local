@@ -2,7 +2,13 @@ import { Pool, type PoolClient } from "pg";
 import type { Config } from "./config.js";
 
 export function createPool(config: Config): Pool {
-  return new Pool({ connectionString: config.DATABASE_URL, max: 10 });
+  return new Pool({
+    connectionString: config.DATABASE_URL,
+    max: config.DATABASE_POOL_MAX,
+    idleTimeoutMillis: config.DATABASE_IDLE_TIMEOUT_MS,
+    connectionTimeoutMillis: config.DATABASE_CONNECT_TIMEOUT_MS,
+    application_name: "filefinder-coordinator"
+  });
 }
 
 export async function transaction<T>(pool: Pool, work: (client: PoolClient) => Promise<T>): Promise<T> {

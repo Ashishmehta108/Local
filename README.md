@@ -1,6 +1,6 @@
 # FileFinder
 
-Windows-first, self-hosted metadata search across office LAN and private-VPN connected computers. File contents are never uploaded or transferred.
+Windows-first metadata search across connected computers. File contents are never uploaded or transferred.
 
 ## Implemented
 
@@ -30,7 +30,7 @@ Windows-first, self-hosted metadata search across office LAN and private-VPN con
 ## Run locally
 
 1. Copy `.env.example` to `.env`, replace all secrets and generate the Ed25519 key with `pnpm generate:signing-key`.
-2. Start PostgreSQL with `docker compose up -d postgres`.
+2. Start a locally installed PostgreSQL service and create the `filefinder` database.
 3. Install dependencies with `pnpm install`.
 4. Apply the schema with `pnpm migrate`.
 5. Start the API with `pnpm dev`.
@@ -49,9 +49,20 @@ This Linux workspace cannot finish-link the Tauri shell because WebKitGTK is abs
 
 ## Windows Release
 
-Run `scripts/Prepare-WindowsDesktopRelease.ps1` on a Windows signing host. It builds the Rust sidecar, stages the target-qualified binary, creates NSIS/MSI bundles and optionally signs them when `WINDOWS_SIGNING_CERTIFICATE_THUMBPRINT` is set.
+Run `scripts/Prepare-WindowsDesktopRelease.ps1` on a Windows signing host. For
+Render, pass `-CoordinatorUrl https://your-service.onrender.com -HostedAgentAuth`.
+It builds the Rust sidecar, stages the target-qualified
+binary, creates NSIS/MSI bundles and optionally signs them when
+`WINDOWS_SIGNING_CERTIFICATE_THUMBPRINT` is set.
 
 Run `scripts/Prepare-WindowsCoordinatorRelease.ps1` to stage a coordinator release containing its own Node runtime, production dependencies, migrations and operations scripts. Employee desktops do not require Node.js, Rust, SDKs or Docker.
+
+## Render + Supabase
+
+The no-Docker commercial hosting target uses a native Render Node web service and
+Supabase Postgres. See [`docs/commercial-render-supabase.md`](docs/commercial-render-supabase.md)
+and the root [`render.yaml`](render.yaml). The desktop never receives Supabase
+database credentials; it communicates only with the Render HTTPS/WSS endpoint.
 
 ## UI Direction
 

@@ -5,6 +5,9 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use anyhow::{Context, Result};
+use base64::Engine;
+use chrono::Utc;
+use ed25519_dalek::{Signer, SigningKey};
 use futures_util::{SinkExt, StreamExt};
 use http::Request;
 use reqwest::{Client, StatusCode};
@@ -24,6 +27,7 @@ pub struct CoordinatorClient {
     http: Client,
     base_url: String,
     agent_token: String,
+    device_signing_key: Option<SigningKey>,
     socket_tls: Arc<ClientConfig>,
 }
 
@@ -31,6 +35,7 @@ impl CoordinatorClient {
     pub fn new(
         base_url: String,
         agent_token: String,
+        device_signing_key: Option<String>,
         certificate: Option<&Path>,
         private_key: Option<&Path>,
         coordinator_ca: Option<&Path>,
@@ -61,10 +66,15 @@ impl CoordinatorClient {
         }
         let http = builder.build()?;
         let socket_tls = Arc::new(socket_tls_config(certificate, private_key, coordinator_ca)?);
+        let device_signing_key = device_signing_key
+            .as_deref()
+            .map(crate::identity::signing_key_from_base64)
+            .transpose()?;
         Ok(Self {
             http,
             base_url: base_url.trim_end_matches('/').to_owned(),
             agent_token,
+            device_signing_key,
             socket_tls,
         })
     }
@@ -101,11 +111,12 @@ impl CoordinatorClient {
             .url("/api/v1/agent/live")
             .replacen("https://", "wss://", 1)
             .replacen("http://", "ws://", 1);
-        let request = Request::builder()
+        let mut request = Request::builder()
             .uri(socket_url)
             .header("Authorization", format!("Bearer {}", self.agent_token))
             .header("Sec-WebSocket-Protocol", "filefinder.agent.v1")
             .body(())?;
+        self.sign_headers(request.headers_mut(), "GET", "/api/v1/agent/live")?;
         let (mut socket, _) = connect_async_tls_with_config(
             request,
             None,
@@ -197,9 +208,18 @@ impl CoordinatorClient {
     }
 
     async fn send(&self, request: reqwest::RequestBuilder) -> Result<reqwest::Response> {
-        let response = request
+        let mut request = request
             .bearer_auth(&self.agent_token)
-            .send()
+            .build()
+            .context("build coordinator request")?;
+        let path = match request.url().query() {
+            Some(query) => format!("{}?{query}", request.url().path()),
+            None => request.url().path().to_owned(),
+        };
+        let method = request.method().as_str().to_owned();
+        self.sign_headers(request.headers_mut(), &method, &path)?;
+        let response = self.http
+            .execute(request)
             .await
             .context("coordinator request failed")?;
         if response.status().is_success() {
@@ -215,6 +235,26 @@ impl CoordinatorClient {
 
     fn url(&self, path: &str) -> String {
         format!("{}{path}", self.base_url)
+    }
+
+    fn sign_headers(
+        &self,
+        headers: &mut http::HeaderMap,
+        method: &str,
+        path: &str,
+    ) -> Result<()> {
+        let Some(signing_key) = &self.device_signing_key else {
+            return Ok(());
+        };
+        let timestamp = Utc::now().timestamp().to_string();
+        let nonce = Uuid::new_v4().to_string();
+        let message = format!("{timestamp}\n{nonce}\n{method}\n{path}");
+        let signature = base64::engine::general_purpose::STANDARD
+            .encode(signing_key.sign(message.as_bytes()).to_bytes());
+        headers.insert("x-filefinder-timestamp", timestamp.parse()?);
+        headers.insert("x-filefinder-nonce", nonce.parse()?);
+        headers.insert("x-filefinder-signature", signature.parse()?);
+        Ok(())
     }
 }
 

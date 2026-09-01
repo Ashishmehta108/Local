@@ -1,8 +1,10 @@
 import { FormEvent, startTransition, useEffect, useEffectEvent, useState } from "react";
 import { CoordinatorApi, type AuditEntry, type Device, type FileResult, type IndexedRoot, type Session, type User } from "./api";
-import { agentStatus, configureAgent, isTauri, startAgent, type AgentStatus } from "./agent";
+import { agentStatus, configureAgent, createAgentIdentity, isTauri, startAgent, type AgentStatus } from "./agent";
 
-const DEFAULT_COORDINATOR = "https://filefinder.office.local";
+const DEFAULT_COORDINATOR = import.meta.env.VITE_COORDINATOR_URL?.trim() || "https://filefinder.office.local";
+const REQUIRE_AGENT_CERTIFICATE = import.meta.env.VITE_REQUIRE_AGENT_CERTIFICATE !== "false";
+const REQUIRE_AGENT_SIGNATURES = import.meta.env.VITE_REQUIRE_AGENT_SIGNATURES !== "false";
 
 function savedSession(): Session | null {
   try { const saved = sessionStorage.getItem("session"); return saved ? JSON.parse(saved) as Session : null; }
@@ -41,7 +43,7 @@ export function App() {
           {session.user.role === "ADMIN" && <button className={section === "admin" ? "active" : ""} onClick={() => setSection("admin")}>Administration</button>}
           <button className={section === "settings" ? "active" : ""} onClick={() => setSection("settings")}>Connection</button>
         </nav>
-        <div className="rail-foot"><span className="status-dot" />Private network</div>
+        <div className="rail-foot"><span className="status-dot" />Secure connection</div>
       </aside>
       <main>
         {section === "search" && <Search api={api} />}
@@ -65,7 +67,7 @@ function Login({ coordinator, setCoordinator, api, onSignedIn }: { coordinator: 
   }
 
   return <div className="login-stage"><section className="login-card">
-    <div className="eyebrow">SELF-HOSTED WORKSPACE</div><h1>Find it where it lives.</h1>
+    <div className="eyebrow">PRIVATE WORKSPACE</div><h1>Find it where it lives.</h1>
     <p>Search approved folders across every connected office computer. File contents never leave their device.</p>
     <form onSubmit={submit}>
       <label>Coordinator address<input value={coordinator} onChange={(event) => setCoordinator(event.target.value)} required /></label>
@@ -74,7 +76,7 @@ function Login({ coordinator, setCoordinator, api, onSignedIn }: { coordinator: 
       {error && <div className="error" role="alert">{error}</div>}
       <button className="primary" disabled={busy}>{busy ? "Connecting..." : "Enter workspace"}</button>
     </form>
-  </section><div className="login-aside"><div className="network-map"><span>Main coordinator</span><i /><span>Office PC 01</span><i /><span>Remote PC 02 via VPN</span></div></div></div>;
+  </section><div className="login-aside"><div className="network-map"><span>Secure coordinator</span><i /><span>Office PC 01</span><i /><span>Remote PC 02</span></div></div></div>;
 }
 
 function Search({ api }: { api: CoordinatorApi }) {
@@ -84,7 +86,7 @@ function Search({ api }: { api: CoordinatorApi }) {
   return <div className="page"><header><div><div className="eyebrow">GLOBAL INDEX</div><h1>Search every computer</h1></div><div className="privacy-note">Metadata only</div></header>
     <form className="search-box" onSubmit={submit}><input autoFocus value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Filename, extension, or folder..." aria-label="Search files"/><button disabled={busy}>{busy ? "Searching" : "Search"}</button></form>
     {error && <div className="error" role="alert">{error}</div>}
-    <div className="result-meta"><span>{items.length ? `${items.length} matches` : "Ready to search"}</span><span>LAN + private VPN</span></div>
+    <div className="result-meta"><span>{items.length ? `${items.length} matches` : "Ready to search"}</span><span>Encrypted device connections</span></div>
     <section className="results">{items.map((file) => <article className="result" key={file.id}><div className="file-icon">{file.extension.slice(0, 4) || "FILE"}</div><div className="file-main"><h2>{file.name}</h2><p>{file.rootPath} / {file.relativePath}</p><div className="file-meta"><span className={`presence ${file.presence.toLowerCase()}`}>{file.presence}</span><span>{file.deviceName}</span><span>{formatSize(file.sizeBytes)}</span><span>{new Date(file.modifiedAt).toLocaleDateString()}</span></div></div><button className="reveal" disabled={file.presence !== "ONLINE"} onClick={() => reveal(file)}>Reveal</button></article>)}</section>
   </div>;
 }
@@ -109,8 +111,18 @@ function Administration({ api }: { api: CoordinatorApi }) {
 }
 
 function Connection({ coordinator, api, isAdmin, onSignOut }: { coordinator: string; api: CoordinatorApi; isAdmin: boolean; onSignOut: () => void }) {
+  const isLoopback = /^http:\/\/(127\.0\.0\.1|localhost)(:\d+)?\/?$/i.test(coordinator);
+  const requiresClientCertificate = !isLoopback && REQUIRE_AGENT_CERTIFICATE;
   const [status, setStatus] = useState<AgentStatus | null>(null);
-  const [form, setForm] = useState({ code: "", name: "", rootPath: "", certificatePath: "", privateKeyPath: "", certificateFingerprint: "", coordinatorCaPath: "" });
+  const [form, setForm] = useState({
+    code: "",
+    name: "",
+    rootPath: "",
+    certificatePath: "C:\\ProgramData\\FileFinder Agent\\client.crt.pem",
+    privateKeyPath: "C:\\ProgramData\\FileFinder Agent\\client.key.pem",
+    certificateFingerprint: "",
+    coordinatorCaPath: "C:\\ProgramData\\FileFinder Agent\\coordinator-ca.pem"
+  });
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState(false);
   useEffect(() => { if (isTauri()) void agentStatus().then(setStatus); }, []);
@@ -118,15 +130,15 @@ function Connection({ coordinator, api, isAdmin, onSignOut }: { coordinator: str
   async function enrol(event: FormEvent) {
     event.preventDefault(); setBusy(true); setMessage("");
     try {
-      const keyPair = await crypto.subtle.generateKey({ name: "Ed25519" }, true, ["sign", "verify"]);
-      const publicKey = btoa(String.fromCharCode(...new Uint8Array(await crypto.subtle.exportKey("spki", keyPair.publicKey))));
-      const enrolled = await api.enrolDevice(form.code, form.name, publicKey, form.certificateFingerprint.replaceAll(":", ""));
+      const { publicKey } = await createAgentIdentity();
+      const certificateFingerprint = requiresClientCertificate ? form.certificateFingerprint.replaceAll(":", "") : undefined;
+      const enrolled = await api.enrolDevice(form.code, form.name, publicKey, certificateFingerprint);
       const root = await api.addRoot(enrolled.deviceId, form.rootPath);
-      await configureAgent({ coordinatorUrl: coordinator.replace("filefinder.", "agents.filefinder."), agentToken: enrolled.agentToken, commandSigningPublicKey: enrolled.commandSigningPublicKey, clientCertificatePem: form.certificatePath, clientPrivateKeyPem: form.privateKeyPath, coordinatorCaPem: form.coordinatorCaPath, rootId: root.id, rootPath: form.rootPath });
+      await configureAgent({ coordinatorUrl: coordinator, agentToken: enrolled.agentToken, commandSigningPublicKey: enrolled.commandSigningPublicKey, requireRequestSignatures: REQUIRE_AGENT_SIGNATURES, requireClientCertificate: requiresClientCertificate, clientCertificatePem: requiresClientCertificate ? form.certificatePath : null, clientPrivateKeyPem: requiresClientCertificate ? form.privateKeyPath : null, coordinatorCaPem: requiresClientCertificate && form.coordinatorCaPath ? form.coordinatorCaPath : null, rootId: root.id, rootPath: form.rootPath });
       setStatus(await startAgent()); setMessage("This computer is enrolled and indexing has started.");
     } catch (cause) { setMessage(cause instanceof Error ? cause.message : "Agent setup failed"); } finally { setBusy(false); }
   }
-  return <div className="page narrow"><header><div><div className="eyebrow">NETWORK</div><h1>Connection</h1></div></header><section className="settings-card"><div><span>Coordinator</span><strong>{coordinator}</strong></div><div><span>Access modes</span><strong>Office LAN / Private VPN</strong></div><div><span>Local agent</span><strong>{status?.running ? "Running" : status?.configured ? "Configured" : "Not configured"}</strong></div><div><span>Indexed data</span><strong>Names, paths and metadata only</strong></div><div><span>File transfer</span><strong>Disabled</strong></div></section>
-    {isAdmin && isTauri() && !status?.running && <form className="agent-setup" onSubmit={enrol}><div className="eyebrow">ENROL THIS COMPUTER</div><label>One-time enrolment code<input value={form.code} onChange={(event) => field("code", event.target.value)} required /></label><label>Computer name<input value={form.name} onChange={(event) => field("name", event.target.value)} required /></label><label>Approved folder path<input placeholder="D:\\Projects" value={form.rootPath} onChange={(event) => field("rootPath", event.target.value)} required /></label><label>mTLS certificate path<input placeholder="C:\\ProgramData\\FileFinder Agent\\client.crt.pem" value={form.certificatePath} onChange={(event) => field("certificatePath", event.target.value)} required /></label><label>mTLS private key path<input placeholder="C:\\ProgramData\\FileFinder Agent\\client.key.pem" value={form.privateKeyPath} onChange={(event) => field("privateKeyPath", event.target.value)} required /></label><label>Certificate SHA-256 fingerprint<input pattern="[A-Fa-f0-9:]{64,95}" value={form.certificateFingerprint} onChange={(event) => field("certificateFingerprint", event.target.value)} required /></label><label>Coordinator CA path (private CA only)<input placeholder="C:\\ProgramData\\FileFinder Agent\\coordinator-ca.pem" value={form.coordinatorCaPath} onChange={(event) => field("coordinatorCaPath", event.target.value)} /></label><button className="primary" disabled={busy}>{busy ? "Enrolling..." : "Start indexing"}</button></form>}
+  return <div className="page narrow"><header><div><div className="eyebrow">NETWORK</div><h1>Connection</h1></div></header><section className="settings-card"><div><span>Coordinator</span><strong>{coordinator}</strong></div><div><span>Access mode</span><strong>Outbound HTTPS / WSS</strong></div><div><span>Local agent</span><strong>{status?.running ? "Running" : status?.configured ? "Configured" : "Not configured"}</strong></div><div><span>Indexed data</span><strong>Names, paths and metadata only</strong></div><div><span>File transfer</span><strong>Disabled</strong></div></section>
+    {isAdmin && isTauri() && !status?.running && <form className="agent-setup" onSubmit={enrol}><div className="eyebrow">ENROL THIS COMPUTER</div><label>One-time enrolment code<input value={form.code} onChange={(event) => field("code", event.target.value)} required /></label><label>Computer name<input value={form.name} onChange={(event) => field("name", event.target.value)} required /></label><label>Approved folder path<input placeholder="D:\\Projects" value={form.rootPath} onChange={(event) => field("rootPath", event.target.value)} required /></label>{requiresClientCertificate && <><label>mTLS certificate path<input placeholder="C:\\ProgramData\\FileFinder Agent\\client.crt.pem" value={form.certificatePath} onChange={(event) => field("certificatePath", event.target.value)} required /></label><label>mTLS private key path<input placeholder="C:\\ProgramData\\FileFinder Agent\\client.key.pem" value={form.privateKeyPath} onChange={(event) => field("privateKeyPath", event.target.value)} required /></label><label>Certificate SHA-256 fingerprint<input pattern="[A-Fa-f0-9:]{64,95}" value={form.certificateFingerprint} onChange={(event) => field("certificateFingerprint", event.target.value)} required /></label><label>Coordinator CA path (private CA only)<input placeholder="C:\\ProgramData\\FileFinder Agent\\coordinator-ca.pem" value={form.coordinatorCaPath} onChange={(event) => field("coordinatorCaPath", event.target.value)} /></label></>}<button className="primary" disabled={busy}>{busy ? "Enrolling..." : "Start indexing"}</button></form>}
     {message && <div className={status?.running ? "notice" : "error"}>{message}</div>}<button className="quiet signout" onClick={async () => { await api.logout(); onSignOut(); }}>Sign out on this computer</button></div>;
 }

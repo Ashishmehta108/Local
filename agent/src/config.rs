@@ -21,6 +21,12 @@ pub struct AgentConfig {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub protected_agent_token: Option<String>,
     pub command_signing_public_key: String,
+    #[serde(default)]
+    pub require_request_signatures: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub protected_device_signing_key: Option<String>,
+    #[serde(default = "default_require_client_certificate")]
+    pub require_client_certificate: bool,
     pub client_certificate_pem: Option<PathBuf>,
     pub client_private_key_pem: Option<PathBuf>,
     pub coordinator_ca_pem: Option<PathBuf>,
@@ -32,6 +38,10 @@ pub struct AgentConfig {
 
 fn default_batch_size() -> usize {
     500
+}
+
+fn default_require_client_certificate() -> bool {
+    true
 }
 
 impl AgentConfig {
@@ -55,9 +65,13 @@ impl AgentConfig {
         if self.command_signing_public_key.len() < 40 {
             bail!("command signing public key is invalid");
         }
+        if self.require_request_signatures && self.protected_device_signing_key.is_none() {
+            bail!("signed agent requests require a protected device signing key");
+        }
         let is_loopback = self.coordinator_url.starts_with("http://127.0.0.1")
             || self.coordinator_url.starts_with("http://localhost");
-        if !is_loopback
+        if self.require_client_certificate
+            && !is_loopback
             && (self.client_certificate_pem.is_none() || self.client_private_key_pem.is_none())
         {
             bail!("HTTPS agents require an mTLS client certificate and private key");
@@ -78,5 +92,12 @@ impl AgentConfig {
         self.agent_token
             .clone()
             .ok_or_else(|| anyhow::anyhow!("agent token is missing"))
+    }
+
+    pub fn resolved_device_signing_key(&self) -> Result<Option<String>> {
+        self.protected_device_signing_key
+            .as_deref()
+            .map(crate::secrets::unprotect_secret)
+            .transpose()
     }
 }

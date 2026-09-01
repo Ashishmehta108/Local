@@ -100,15 +100,24 @@ fn stable_file_id(_path: &Path, metadata: &fs::Metadata) -> String {
 
 #[cfg(windows)]
 fn stable_file_id(path: &Path, _metadata: &fs::Metadata) -> String {
-    use std::os::windows::fs::MetadataExt;
-    match fs::metadata(path) {
-        Ok(metadata) => format!(
-            "{}:{}",
-            metadata.volume_serial_number().unwrap_or(0),
-            metadata.file_index().unwrap_or(0)
-        ),
-        Err(_) => path.to_string_lossy().into_owned(),
+    use std::os::windows::io::AsRawHandle;
+    use windows_sys::Win32::Storage::FileSystem::{
+        BY_HANDLE_FILE_INFORMATION, GetFileInformationByHandle,
+    };
+
+    let file = match fs::File::open(path) {
+        Ok(file) => file,
+        Err(_) => return path.to_string_lossy().into_owned(),
+    };
+    let mut information: BY_HANDLE_FILE_INFORMATION = unsafe { std::mem::zeroed() };
+    let succeeded =
+        unsafe { GetFileInformationByHandle(file.as_raw_handle() as _, &mut information) };
+    if succeeded == 0 {
+        return path.to_string_lossy().into_owned();
     }
+
+    let file_index = ((information.nFileIndexHigh as u64) << 32) | information.nFileIndexLow as u64;
+    format!("{}:{}", information.dwVolumeSerialNumber, file_index)
 }
 
 #[cfg(test)]
