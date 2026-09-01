@@ -92,13 +92,24 @@ function Search({ api }: { api: CoordinatorApi }) {
 }
 
 function Devices({ api, isAdmin }: { api: CoordinatorApi; isAdmin: boolean }) {
-  const [items, setItems] = useState<Device[]>([]); const [roots, setRoots] = useState<IndexedRoot[]>([]); const [error, setError] = useState(""); const [enrolment, setEnrolment] = useState<{ code: string; expiresAt: string } | null>(null);
+  const [items, setItems] = useState<Device[]>([]); const [roots, setRoots] = useState<IndexedRoot[]>([]); const [error, setError] = useState("");
+  const [enrolment, setEnrolment] = useState<{ code: string; expiresAt: string } | null>(() => {
+    try { const saved = localStorage.getItem("latest_enrolment"); return saved ? JSON.parse(saved) : null; } catch { return null; }
+  });
   const load = useEffectEvent(async () => { try { const [devices, indexedRoots] = await Promise.all([api.devices(), api.roots()]); setItems(devices.items); setRoots(indexedRoots.items); } catch (cause) { setError(cause instanceof Error ? cause.message : "Could not load devices"); } });
   useEffect(() => { void load(); const timer = setInterval(() => void load(), 30_000); return () => clearInterval(timer); }, []);
   async function pause(device: Device) { await api.updateDevice(device.id, { state: device.state === "PAUSED" ? "ACTIVE" : "PAUSED" }); await load(); }
-  async function createCode() { try { setEnrolment(await api.createEnrolment()); } catch (cause) { setError(cause instanceof Error ? cause.message : "Could not create enrolment"); } }
+  async function createCode() {
+    try {
+      const created = await api.createEnrolment();
+      setEnrolment(created);
+      localStorage.setItem("latest_enrolment", JSON.stringify(created));
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Could not create enrolment");
+    }
+  }
   async function toggleRoot(root: IndexedRoot) { if (root.enabled && !window.confirm(`Stop indexing ${root.canonicalPath}? Existing metadata will be hidden.`)) return; await api.updateRoot(root.id, !root.enabled); await load(); }
-  return <div className="page"><header><div><div className="eyebrow">FLEET</div><h1>Connected computers</h1></div><div className="header-actions"><div className="privacy-note">{items.length} enrolled</div><button className="quiet" onClick={createCode}>New computer code</button></div></header>{enrolment && <div className="enrolment-code"><span>One-time code</span><strong>{enrolment.code}</strong><small>Expires {new Date(enrolment.expiresAt).toLocaleTimeString()}</small></div>}{error && <div className="error">{error}</div>}<section className="device-grid">{items.map((device) => <article className="device" key={device.id}><div className="device-top"><span className={`device-orb ${device.presence.toLowerCase()}`} /><span className="device-state">{device.presence}</span></div><h2>{device.name}</h2><p>{device.os}</p><dl><div><dt>Last event</dt><dd>#{device.lastSequence}</dd></div><div><dt>Last seen</dt><dd>{device.lastSeenAt ? new Date(device.lastSeenAt).toLocaleTimeString() : "Never"}</dd></div></dl><div className="root-list">{roots.filter((root) => root.deviceId === device.id).map((root) => <button key={root.id} disabled={!isAdmin} onClick={() => toggleRoot(root)}><span>{root.canonicalPath}</span><b>{root.enabled ? "INDEXED" : "DISABLED"}</b></button>)}</div>{isAdmin && device.state !== "REVOKED" && <button className="quiet" onClick={() => pause(device)}>{device.state === "PAUSED" ? "Resume indexing" : "Pause indexing"}</button>}</article>)}</section></div>;
+  return <div className="page"><header><div><div className="eyebrow">FLEET</div><h1>Connected computers</h1></div><div className="header-actions"><div className="privacy-note">{items.length} enrolled</div><button className="quiet" onClick={createCode}>New computer code</button></div></header>{enrolment && <div className="enrolment-code"><span>One-time code</span><strong>{enrolment.code}</strong><button className="quiet" style={{ padding: "4px 8px", fontSize: "11px" }} onClick={() => navigator.clipboard.writeText(enrolment.code)}>Copy</button><small>Expires {new Date(enrolment.expiresAt).toLocaleTimeString()}</small></div>}{error && <div className="error">{error}</div>}<section className="device-grid">{items.map((device) => <article className="device" key={device.id}><div className="device-top"><span className={`device-orb ${device.presence.toLowerCase()}`} /><span className="device-state">{device.presence}</span></div><h2>{device.name}</h2><p>{device.os}</p><dl><div><dt>Last event</dt><dd>#{device.lastSequence}</dd></div><div><dt>Last seen</dt><dd>{device.lastSeenAt ? new Date(device.lastSeenAt).toLocaleTimeString() : "Never"}</dd></div></dl><div className="root-list">{roots.filter((root) => root.deviceId === device.id).map((root) => <button key={root.id} disabled={!isAdmin} onClick={() => toggleRoot(root)}><span>{root.canonicalPath}</span><b>{root.enabled ? "INDEXED" : "DISABLED"}</b></button>)}</div>{isAdmin && device.state !== "REVOKED" && <button className="quiet" onClick={() => pause(device)}>{device.state === "PAUSED" ? "Resume indexing" : "Pause indexing"}</button>}</article>)}</section></div>;
 }
 
 function Administration({ api }: { api: CoordinatorApi }) {
