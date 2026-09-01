@@ -209,30 +209,30 @@ function Devices({ api, isAdmin, coordinator, onGoToConnection }: { api: Coordin
       {error && <div className="error">{error}</div>}
 
       {enrolModal && (
-        <div style={{ background: "var(--surface-card)", border: "1px solid var(--hairline)", borderRadius: "var(--radius-lg)", padding: "24px", marginBottom: "24px" }}>
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "16px" }}>
+        <div style={{ background: "var(--surface-card)", border: "1px solid var(--hairline)", borderRadius: "var(--radius-lg)", padding: "16px 20px", marginBottom: "16px" }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "12px" }}>
             <div>
               <div className="eyebrow">STEP 1 OF 1</div>
-              <h2 style={{ fontSize: "18px", margin: "4px 0 0", color: "var(--ink)" }}>Connect & Start Indexing</h2>
+              <h2 style={{ fontSize: "16px", margin: "2px 0 0", color: "var(--ink)" }}>Connect & Start Indexing</h2>
             </div>
             <button className="quiet" onClick={() => setEnrolModal(false)}>Cancel</button>
           </div>
-          <p style={{ color: "var(--muted)", fontSize: "13px", margin: "0 0 16px" }}>
+          <p style={{ color: "var(--muted)", fontSize: "13px", margin: "0 0 12px" }}>
             We'll automatically generate a secure identity, register this machine, and start the background indexer.
           </p>
-          <form onSubmit={oneClickEnrol} style={{ display: "grid", gap: "14px" }}>
-            <label style={{ display: "grid", gap: "6px", fontSize: "12px", color: "var(--muted)", fontFamily: "var(--font-mono)" }}>
+          <form onSubmit={oneClickEnrol} style={{ display: "grid", gap: "10px" }}>
+            <label style={{ display: "grid", gap: "4px", fontSize: "12px", color: "var(--muted)", fontFamily: "var(--font-mono)" }}>
               Computer name
-              <input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} style={{ padding: "10px 12px", borderRadius: "8px", border: "1px solid var(--hairline)", background: "var(--canvas-soft)", color: "var(--ink)" }} required />
+              <input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} style={{ padding: "8px 12px", borderRadius: "8px", border: "1px solid var(--hairline)", background: "var(--canvas-soft)", color: "var(--ink)" }} required />
             </label>
-            <label style={{ display: "grid", gap: "6px", fontSize: "12px", color: "var(--muted)", fontFamily: "var(--font-mono)" }}>
+            <label style={{ display: "grid", gap: "4px", fontSize: "12px", color: "var(--muted)", fontFamily: "var(--font-mono)" }}>
               Approved folder to index
               <div style={{ display: "flex", gap: "8px" }}>
-                <input placeholder="C:\Users\Documents or D:\Projects" value={form.rootPath} onChange={(e) => setForm({ ...form, rootPath: e.target.value })} style={{ flex: 1, padding: "10px 12px", borderRadius: "8px", border: "1px solid var(--hairline)", background: "var(--canvas-soft)", color: "var(--ink)" }} required />
+                <input placeholder="C:\Users\Documents or D:\Projects" value={form.rootPath} onChange={(e) => setForm({ ...form, rootPath: e.target.value })} style={{ flex: 1, padding: "8px 12px", borderRadius: "8px", border: "1px solid var(--hairline)", background: "var(--canvas-soft)", color: "var(--ink)" }} required />
                 {isTauri() && <button type="button" className="quiet" onClick={selectFolder}>Browse...</button>}
               </div>
             </label>
-            <div style={{ display: "flex", gap: "10px", marginTop: "8px" }}>
+            <div style={{ display: "flex", gap: "8px", marginTop: "4px" }}>
               <button className="primary" disabled={busy}>{busy ? "Connecting & Indexing..." : "Start indexing now"}</button>
               <button type="button" className="quiet" onClick={onGoToConnection}>Advanced options</button>
             </div>
@@ -241,9 +241,9 @@ function Devices({ api, isAdmin, coordinator, onGoToConnection }: { api: Coordin
       )}
 
       {items.length === 0 ? (
-        <div style={{ textAlign: "center", padding: "64px 20px", background: "var(--surface-card)", border: "1px solid var(--hairline)", borderRadius: "var(--radius-lg)" }}>
-          <h2 style={{ fontSize: "20px", color: "var(--ink)", marginBottom: "8px" }}>No computers enrolled yet</h2>
-          <p style={{ color: "var(--muted)", fontSize: "14px", marginBottom: "20px" }}>Click the button below to connect this computer and choose a folder to index.</p>
+        <div style={{ textAlign: "center", padding: "32px 16px", background: "var(--surface-card)", border: "1px solid var(--hairline)", borderRadius: "var(--radius-lg)" }}>
+          <h2 style={{ fontSize: "18px", color: "var(--ink)", marginBottom: "6px" }}>No computers enrolled yet</h2>
+          <p style={{ color: "var(--muted)", fontSize: "13px", marginBottom: "16px" }}>Click the button below to connect this computer and choose a folder to index.</p>
           <button className="primary" onClick={() => setEnrolModal(true)}>+ Connect this computer</button>
         </div>
       ) : (

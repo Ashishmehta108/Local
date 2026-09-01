@@ -305,7 +305,7 @@ main {
 .page {
   max-width: 1120px;
   margin: 0 auto;
-  padding: var(--spacing-xxl);
+  padding: 24px 32px 40px;
   animation: arrive 0.35s ease-out;
 }
 
@@ -319,8 +319,8 @@ header {
   justify-content: space-between;
   align-items: center;
   border-bottom: 1px solid var(--hairline);
-  padding-bottom: var(--spacing-md);
-  margin-bottom: var(--spacing-xl);
+  padding-bottom: var(--spacing-sm);
+  margin-bottom: var(--spacing-md);
 }
 
 .header-actions {
