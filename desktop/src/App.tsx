@@ -111,12 +111,12 @@ function Administration({ api }: { api: CoordinatorApi }) {
 }
 
 function Connection({ coordinator, api, isAdmin, onSignOut }: { coordinator: string; api: CoordinatorApi; isAdmin: boolean; onSignOut: () => void }) {
-  const isLoopback = /^http:\/\/(127\.0\.0\.1|localhost)(:\d+)?\/?$/i.test(coordinator);
-  const requiresClientCertificate = !isLoopback && REQUIRE_AGENT_CERTIFICATE;
+  const [showAdvanced, setShowAdvanced] = useState(false);
+  const requiresClientCertificate = REQUIRE_AGENT_CERTIFICATE && showAdvanced;
   const [status, setStatus] = useState<AgentStatus | null>(null);
   const [form, setForm] = useState({
     code: "",
-    name: "",
+    name: "My Computer",
     rootPath: "",
     certificatePath: "C:\\ProgramData\\FileFinder Agent\\client.crt.pem",
     privateKeyPath: "C:\\ProgramData\\FileFinder Agent\\client.key.pem",
@@ -127,6 +127,19 @@ function Connection({ coordinator, api, isAdmin, onSignOut }: { coordinator: str
   const [busy, setBusy] = useState(false);
   useEffect(() => { if (isTauri()) void agentStatus().then(setStatus); }, []);
   function field(name: keyof typeof form, value: string) { setForm((current) => ({ ...current, [name]: value })); }
+  
+  async function selectFolder() {
+    try {
+      const { open } = await import("@tauri-apps/plugin-dialog");
+      const selected = await open({ directory: true, multiple: false, title: "Select Approved Folder to Index" });
+      if (selected && typeof selected === "string") {
+        field("rootPath", selected);
+      }
+    } catch {
+      // Fallback if dialog plugin is not running in pure web mode
+    }
+  }
+
   async function enrol(event: FormEvent) {
     event.preventDefault(); setBusy(true); setMessage("");
     try {
@@ -139,6 +152,23 @@ function Connection({ coordinator, api, isAdmin, onSignOut }: { coordinator: str
     } catch (cause) { setMessage(cause instanceof Error ? cause.message : "Agent setup failed"); } finally { setBusy(false); }
   }
   return <div className="page narrow"><header><div><div className="eyebrow">NETWORK</div><h1>Connection</h1></div></header><section className="settings-card"><div><span>Coordinator</span><strong>{coordinator}</strong></div><div><span>Access mode</span><strong>Outbound HTTPS / WSS</strong></div><div><span>Local agent</span><strong>{status?.running ? "Running" : status?.configured ? "Configured" : "Not configured"}</strong></div><div><span>Indexed data</span><strong>Names, paths and metadata only</strong></div><div><span>File transfer</span><strong>Disabled</strong></div></section>
-    {!status?.running && <form className="agent-setup" onSubmit={enrol}><div className="eyebrow">ENROL THIS COMPUTER</div><label>One-time enrolment code<input value={form.code} onChange={(event) => field("code", event.target.value)} required /></label><label>Computer name<input value={form.name} onChange={(event) => field("name", event.target.value)} required /></label><label>Approved folder path<input placeholder="D:\\Projects" value={form.rootPath} onChange={(event) => field("rootPath", event.target.value)} required /></label>{requiresClientCertificate && <><label>mTLS certificate path<input placeholder="C:\\ProgramData\\FileFinder Agent\\client.crt.pem" value={form.certificatePath} onChange={(event) => field("certificatePath", event.target.value)} required /></label><label>mTLS private key path<input placeholder="C:\\ProgramData\\FileFinder Agent\\client.key.pem" value={form.privateKeyPath} onChange={(event) => field("privateKeyPath", event.target.value)} required /></label><label>Certificate SHA-256 fingerprint<input pattern="[A-Fa-f0-9:]{64,95}" value={form.certificateFingerprint} onChange={(event) => field("certificateFingerprint", event.target.value)} required /></label><label>Coordinator CA path (private CA only)<input placeholder="C:\\ProgramData\\FileFinder Agent\\coordinator-ca.pem" value={form.coordinatorCaPath} onChange={(event) => field("coordinatorCaPath", event.target.value)} /></label></>}<button className="primary" disabled={busy}>{busy ? "Enrolling..." : "Start indexing"}</button></form>}
+    {!status?.running && <form className="agent-setup" onSubmit={enrol}><div className="eyebrow">ENROL THIS COMPUTER</div>
+      <label>One-time enrolment code<input value={form.code} onChange={(event) => field("code", event.target.value)} placeholder="Paste code here..." required /></label>
+      <label>Computer name<input value={form.name} onChange={(event) => field("name", event.target.value)} required /></label>
+      <label>Approved folder path
+        <div style={{ display: "flex", gap: "8px" }}>
+          <input placeholder="C:\\Users\\YourName\\Documents or D:\\Projects" value={form.rootPath} onChange={(event) => field("rootPath", event.target.value)} style={{ flex: 1 }} required />
+          {isTauri() && <button type="button" className="quiet" onClick={selectFolder}>Browse...</button>}
+        </div>
+      </label>
+      <button type="button" className="quiet" style={{ alignSelf: "flex-start", margin: "6px 0 12px" }} onClick={() => setShowAdvanced(!showAdvanced)}>{showAdvanced ? "Hide Advanced Security Options" : "Show Advanced Security Options"}</button>
+      {showAdvanced && <div style={{ display: "grid", gap: "10px", padding: "12px", background: "rgba(0,0,0,0.02)", borderRadius: "8px", border: "1px dashed var(--line)" }}>
+        <small style={{ color: "var(--muted)" }}>mTLS Client Certificate fields (Optional for high-security enterprise networks):</small>
+        <label>mTLS certificate path<input placeholder="C:\\ProgramData\\FileFinder Agent\\client.crt.pem" value={form.certificatePath} onChange={(event) => field("certificatePath", event.target.value)} /></label>
+        <label>mTLS private key path<input placeholder="C:\\ProgramData\\FileFinder Agent\\client.key.pem" value={form.privateKeyPath} onChange={(event) => field("privateKeyPath", event.target.value)} /></label>
+        <label>Certificate SHA-256 fingerprint<input pattern="[A-Fa-f0-9:]{64,95}" value={form.certificateFingerprint} onChange={(event) => field("certificateFingerprint", event.target.value)} placeholder="e.g. 4A:8B:12..." /></label>
+        <label>Coordinator CA path<input placeholder="C:\\ProgramData\\FileFinder Agent\\coordinator-ca.pem" value={form.coordinatorCaPath} onChange={(event) => field("coordinatorCaPath", event.target.value)} /></label>
+      </div>}
+      <button className="primary" disabled={busy}>{busy ? "Enrolling..." : "Start indexing"}</button></form>}
     {message && <div className={status?.running ? "notice" : "error"}>{message}</div>}<button className="quiet signout" onClick={async () => { await api.logout(); onSignOut(); }}>Sign out on this computer</button></div>;
 }
