@@ -5,16 +5,18 @@ DO $$
 BEGIN
   IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'filefinder_app') THEN
     CREATE ROLE filefinder_app LOGIN PASSWORD 'REPLACE_WITH_A_LONG_RANDOM_PASSWORD'
-      NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT;
+      NOCREATEDB NOCREATEROLE NOINHERIT;
   END IF;
 END
 $$;
 
-ALTER ROLE filefinder_app NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT;
+ALTER ROLE filefinder_app NOCREATEDB NOCREATEROLE NOINHERIT;
 GRANT CONNECT ON DATABASE postgres TO filefinder_app;
 GRANT USAGE ON SCHEMA public TO filefinder_app;
+GRANT USAGE ON SCHEMA extensions TO filefinder_app;
 
 GRANT SELECT, INSERT, UPDATE ON
+  schema_migrations,
   organisations,
   users,
   refresh_sessions,
@@ -38,7 +40,7 @@ DECLARE
   policy_name text := 'filefinder_coordinator_access';
 BEGIN
   FOREACH table_name IN ARRAY ARRAY[
-    'organisations', 'users', 'refresh_sessions', 'enrolments', 'devices',
+    'schema_migrations', 'organisations', 'users', 'refresh_sessions', 'enrolments', 'devices',
     'device_tokens', 'indexed_roots', 'files', 'agent_events', 'audit_log',
     'reconciliation_sessions', 'reconciliation_entries', 'device_commands'
   ] LOOP
@@ -55,3 +57,16 @@ BEGIN
   END LOOP;
 END
 $$;
+
+-- The schema was applied through the Supabase migration API. Seed the
+-- coordinator's own migration ledger so Render's pre-deploy check stays
+-- idempotent while using the least-privilege runtime role.
+INSERT INTO schema_migrations (name) VALUES
+  ('001_initial.sql'),
+  ('002_sessions_presence_reconciliation.sql'),
+  ('003_device_commands.sql'),
+  ('004_device_certificate_binding.sql'),
+  ('004_supabase_api_lockdown.sql'),
+  ('005_public_schema_hardening.sql'),
+  ('006_supabase_advisor_hardening.sql')
+ON CONFLICT (name) DO NOTHING;

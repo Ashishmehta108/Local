@@ -465,7 +465,7 @@ export function createServer(config: Config, pool: Pool): FastifyInstance {
                    WHEN d.last_seen_at >= now() - interval '5 minutes' THEN 'STALE'
                    ELSE 'OFFLINE' END AS presence,
               r.canonical_path AS "rootPath",
-              GREATEST(similarity(f.normalized_name, $2), similarity(f.normalized_relative_path, $2)) AS score
+              GREATEST(extensions.similarity(f.normalized_name, $2), extensions.similarity(f.normalized_relative_path, $2)) AS score
          FROM files f
          JOIN devices d ON d.id = f.device_id
          JOIN indexed_roots r ON r.id = f.root_id
