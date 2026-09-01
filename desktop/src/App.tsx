@@ -22,7 +22,7 @@ function formatSize(value: string) {
 export function App() {
   const [coordinator, setCoordinator] = useState(localStorage.getItem("coordinator") ?? DEFAULT_COORDINATOR);
   const [session, setSession] = useState<Session | null>(savedSession);
-  const [section, setSection] = useState<"search" | "devices" | "admin" | "settings">("search");
+  const [section, setSection] = useState<"search" | "devices" | "admin" | "history" | "settings">("search");
   const api = new CoordinatorApi(coordinator, session, signedIn);
 
   function signedIn(next: Session) {
@@ -38,16 +38,18 @@ export function App() {
       <aside className="rail">
         <div className="brand"><span className="brand-mark">F</span><span>FileFinder</span></div>
         <nav aria-label="Primary">
-          <button className={section === "search" ? "active" : ""} onClick={() => setSection("search")}>Search</button>
-          <button className={section === "devices" ? "active" : ""} onClick={() => setSection("devices")}>Computers</button>
-          {session.user.role === "ADMIN" && <button className={section === "admin" ? "active" : ""} onClick={() => setSection("admin")}>Administration</button>}
-          <button className={section === "settings" ? "active" : ""} onClick={() => setSection("settings")}>Connection</button>
+          <button className={section === "search" ? "active" : ""} onClick={() => setSection("search")}>🔍 Search</button>
+          <button className={section === "devices" ? "active" : ""} onClick={() => setSection("devices")}>💻 Computers</button>
+          <button className={section === "history" ? "active" : ""} onClick={() => setSection("history")}>📜 Activity History</button>
+          {session.user.role === "ADMIN" && <button className={section === "admin" ? "active" : ""} onClick={() => setSection("admin")}>⚙️ Administration</button>}
+          <button className={section === "settings" ? "active" : ""} onClick={() => setSection("settings")}>🔌 Connection</button>
         </nav>
         <div className="rail-foot"><span className="status-dot" />Secure connection</div>
       </aside>
       <main>
         {section === "search" && <Search api={api} />}
         {section === "devices" && <Devices api={api} isAdmin={session.user.role === "ADMIN"} />}
+        {section === "history" && <ActivityHistory api={api} />}
         {section === "admin" && <Administration api={api} />}
         {section === "settings" && <Connection coordinator={coordinator} api={api} isAdmin={session.user.role === "ADMIN"} onSignOut={() => { sessionStorage.removeItem("session"); setSession(null); }} />}
       </main>
@@ -119,6 +121,47 @@ function Devices({ api, isAdmin }: { api: CoordinatorApi; isAdmin: boolean }) {
   }
   async function toggleRoot(root: IndexedRoot) { if (root.enabled && !window.confirm(`Stop indexing ${root.canonicalPath}? Existing metadata will be hidden.`)) return; await api.updateRoot(root.id, !root.enabled); await load(); }
   return <div className="page"><header><div><div className="eyebrow">FLEET</div><h1>Connected computers</h1></div><div className="header-actions"><div className="privacy-note">{items.length} enrolled</div><button className="quiet" onClick={createCode}>New computer code</button></div></header>{enrolment && <div className="enrolment-code"><span>One-time code</span><strong>{enrolment.code}</strong><button className="quiet" style={{ padding: "4px 8px", fontSize: "11px" }} onClick={() => navigator.clipboard.writeText(enrolment.code)}>Copy</button><small>Expires {new Date(enrolment.expiresAt).toLocaleTimeString()}</small></div>}{error && <div className="error">{error}</div>}<section className="device-grid">{items.map((device) => <article className="device" key={device.id}><div className="device-top"><span className={`device-orb ${device.presence.toLowerCase()}`} /><span className="device-state">{device.presence}</span></div><h2>{device.name}</h2><p>{device.os}</p><dl><div><dt>Last event</dt><dd>#{device.lastSequence}</dd></div><div><dt>Last seen</dt><dd>{device.lastSeenAt ? new Date(device.lastSeenAt).toLocaleTimeString() : "Never"}</dd></div></dl><div className="root-list">{roots.filter((root) => root.deviceId === device.id).map((root) => <button key={root.id} disabled={!isAdmin} onClick={() => toggleRoot(root)}><span>{root.canonicalPath}</span><b>{root.enabled ? "INDEXED" : "DISABLED"}</b></button>)}</div><div style={{ display: "flex", gap: "6px", marginTop: "8px" }}>{isAdmin && device.state !== "REVOKED" && <button className="quiet" onClick={() => pause(device)}>{device.state === "PAUSED" ? "Resume" : "Pause"}</button>}<button className="quiet" style={{ color: "#a83232", borderColor: "#e0b8b8" }} onClick={() => removeDevice(device)}>Delete</button></div></article>)}</section></div>;
+}
+
+function ActivityHistory({ api }: { api: CoordinatorApi }) {
+  const [audit, setAudit] = useState<AuditEntry[]>([]);
+  const [error, setError] = useState("");
+  const load = useEffectEvent(async () => {
+    try {
+      const result = await api.audit();
+      setAudit(result.items);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Could not load activity history");
+    }
+  });
+  useEffect(() => { void load(); }, []);
+
+  return (
+    <div className="page">
+      <header>
+        <div>
+          <div className="eyebrow">AUDIT LOG</div>
+          <h1>History of changes</h1>
+        </div>
+        <div className="privacy-note">{audit.length} recent events</div>
+      </header>
+      {error && <div className="error">{error}</div>}
+      <section className="history-section" style={{ background: "var(--paper)", border: "1px solid var(--line)", borderRadius: "14px", padding: "20px" }}>
+        <div className="audit-list" style={{ maxHeight: "600px" }}>
+          {audit.map((entry) => (
+            <article key={entry.id} style={{ display: "flex", justifyContent: "space-between", padding: "14px 4px", borderBottom: "1px solid var(--line)" }}>
+              <div style={{ display: "grid", gap: "4px" }}>
+                <strong style={{ fontSize: "13px", color: "var(--ink)", textTransform: "capitalize" }}>{entry.action.replaceAll("_", " ").toLowerCase()}</strong>
+                <span style={{ fontSize: "11px", color: "var(--muted)", fontFamily: "var(--mono)" }}>Target: {entry.targetType} ({entry.targetId || "N/A"})</span>
+              </div>
+              <time style={{ fontSize: "11px", color: "var(--muted)", fontFamily: "var(--mono)" }}>{new Date(entry.createdAt).toLocaleString()}</time>
+            </article>
+          ))}
+          {audit.length === 0 && <p style={{ color: "var(--muted)", fontStyle: "italic" }}>No change history recorded yet.</p>}
+        </div>
+      </section>
+    </div>
+  );
 }
 
 function Administration({ api }: { api: CoordinatorApi }) {
