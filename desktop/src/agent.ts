@@ -31,7 +31,7 @@ export function startAgent(): Promise<AgentStatus> {
 }
 
 export function createAgentIdentity(): Promise<AgentIdentity> {
-  if (!isTauri()) return Promise.resolve({ publicKey: "MCowBQYDK2VwAyEAMockPublicKeyForBrowserTesting12345=" });
+  if (!isTauri()) return Promise.resolve({ publicKey: "MCowBQYDK2VwAyEActFltxKvsUBcpbhzqG1TChtDoZ+9vHQyGFE0mTDQIuA=" });
   return invoke("create_agent_identity");
 }
 
