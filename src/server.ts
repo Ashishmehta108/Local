@@ -116,7 +116,7 @@ export function createServer(config: Config, pool: Pool): FastifyInstance {
   const allowedOrigins = new Set(config.UI_ORIGINS.split(",").map((origin) => origin.trim()));
   app.register(cors, {
     origin(origin, callback) {
-      if (!origin || allowedOrigins.has(origin)) return callback(null, true);
+      if (!origin || config.UI_ORIGINS === "*" || allowedOrigins.has("*") || allowedOrigins.has(origin)) return callback(null, true);
       callback(new Error("Origin is not allowed"), false);
     }
   });
