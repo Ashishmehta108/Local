@@ -283,6 +283,9 @@ function Devices({ api, isAdmin, coordinator, onGoToConnection }: { api: Coordin
 function ActivityHistory({ api }: { api: CoordinatorApi }) {
   const [audit, setAudit] = useState<AuditEntry[]>([]);
   const [error, setError] = useState("");
+  const [filter, setFilter] = useState<"ALL" | "DEVICES" | "USERS" | "INDEXING">("ALL");
+  const [search, setSearch] = useState("");
+
   const load = useEffectEvent(async () => {
     try {
       const result = await api.audit();
@@ -293,6 +296,17 @@ function ActivityHistory({ api }: { api: CoordinatorApi }) {
   });
   useEffect(() => { void load(); }, []);
 
+  const filtered = audit.filter((entry) => {
+    if (filter === "DEVICES" && !entry.action.includes("DEVICE")) return false;
+    if (filter === "USERS" && !entry.action.includes("USER") && !entry.action.includes("ORGANISATION")) return false;
+    if (filter === "INDEXING" && !entry.action.includes("ROOT") && !entry.action.includes("COMMAND")) return false;
+    if (search.trim()) {
+      const q = search.toLowerCase();
+      return entry.action.toLowerCase().includes(q) || entry.targetType.toLowerCase().includes(q) || (entry.targetId || "").toLowerCase().includes(q);
+    }
+    return true;
+  });
+
   return (
     <div className="page">
       <header>
@@ -300,21 +314,41 @@ function ActivityHistory({ api }: { api: CoordinatorApi }) {
           <div className="eyebrow">AUDIT LOG</div>
           <h1>History of changes</h1>
         </div>
-        <div className="privacy-note">{audit.length} recent events</div>
+        <div className="privacy-note">{filtered.length} of {audit.length} events</div>
       </header>
+
       {error && <div className="error">{error}</div>}
-      <section className="history-section" style={{ background: "var(--paper)", border: "1px solid var(--line)", borderRadius: "14px", padding: "20px" }}>
+
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: "12px", marginBottom: "16px", flexWrap: "wrap" }}>
+        <div className="filter-pills" style={{ marginBottom: 0 }}>
+          <button className={`filter-pill ${filter === "ALL" ? "active" : ""}`} onClick={() => setFilter("ALL")}>All events</button>
+          <button className={`filter-pill ${filter === "DEVICES" ? "active" : ""}`} onClick={() => setFilter("DEVICES")}>Devices</button>
+          <button className={`filter-pill ${filter === "INDEXING" ? "active" : ""}`} onClick={() => setFilter("INDEXING")}>Indexing & Roots</button>
+          <button className={`filter-pill ${filter === "USERS" ? "active" : ""}`} onClick={() => setFilter("USERS")}>Users & Auth</button>
+        </div>
+        <input
+          placeholder="Filter events..."
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          style={{ padding: "6px 12px", borderRadius: "8px", border: "1px solid var(--hairline)", background: "var(--surface-card)", color: "var(--ink)", fontSize: "12px", minWidth: "180px" }}
+        />
+      </div>
+
+      <section className="history-section" style={{ background: "var(--surface-card)", border: "1px solid var(--hairline)", borderRadius: "var(--radius-lg)", padding: "20px" }}>
         <div className="audit-list" style={{ maxHeight: "600px" }}>
-          {audit.map((entry) => (
-            <article key={entry.id} style={{ display: "flex", justifyContent: "space-between", padding: "14px 4px", borderBottom: "1px solid var(--line)" }}>
+          {filtered.map((entry) => (
+            <article key={entry.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "14px 4px", borderBottom: "1px solid var(--hairline)" }}>
               <div style={{ display: "grid", gap: "4px" }}>
-                <strong style={{ fontSize: "13px", color: "var(--ink)", textTransform: "capitalize" }}>{entry.action.replaceAll("_", " ").toLowerCase()}</strong>
-                <span style={{ fontSize: "11px", color: "var(--muted)", fontFamily: "var(--mono)" }}>Target: {entry.targetType} ({entry.targetId || "N/A"})</span>
+                <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                  <strong style={{ fontSize: "13px", color: "var(--ink)", textTransform: "capitalize" }}>{entry.action.replaceAll("_", " ").toLowerCase()}</strong>
+                  <span className={`badge ${entry.outcome === "SUCCESS" ? "online" : "offline"}`} style={{ fontSize: "9px" }}>{entry.outcome}</span>
+                </div>
+                <span style={{ fontSize: "11px", color: "var(--muted)", fontFamily: "var(--font-mono)" }}>Target: {entry.targetType} ({entry.targetId || "N/A"})</span>
               </div>
-              <time style={{ fontSize: "11px", color: "var(--muted)", fontFamily: "var(--mono)" }}>{new Date(entry.createdAt).toLocaleString()}</time>
+              <time style={{ fontSize: "11px", color: "var(--muted)", fontFamily: "var(--font-mono)" }}>{new Date(entry.createdAt).toLocaleString()}</time>
             </article>
           ))}
-          {audit.length === 0 && <p style={{ color: "var(--muted)", fontStyle: "italic" }}>No change history recorded yet.</p>}
+          {filtered.length === 0 && <p style={{ color: "var(--muted)", fontStyle: "italic", padding: "16px 0", textAlign: "center" }}>No activity matching the selected filter.</p>}
         </div>
       </section>
     </div>

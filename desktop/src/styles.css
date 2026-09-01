@@ -960,3 +960,87 @@ dd {
     grid-template-columns: 1fr;
   }
 }
+
+/* Toast Notifications */
+.toast-container {
+  position: fixed;
+  bottom: 24px;
+  right: 24px;
+  z-index: 100;
+  display: grid;
+  gap: 8px;
+}
+
+.toast {
+  background: var(--surface-card);
+  border: 1px solid var(--hairline);
+  color: var(--ink);
+  padding: 12px 18px;
+  border-radius: var(--radius-md);
+  font-size: 13px;
+  box-shadow: 0 4px 16px rgba(0,0,0,0.06);
+  animation: arrive 0.25s ease-out;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.toast.success {
+  border-color: var(--success);
+}
+
+.toast.error {
+  border-color: var(--error);
+  color: var(--error);
+}
+
+/* Filter pills */
+.filter-pills {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 16px;
+  flex-wrap: wrap;
+}
+
+.filter-pill {
+  padding: 6px 12px;
+  border-radius: var(--radius-pill);
+  font-size: 12px;
+  border: 1px solid var(--hairline);
+  background: var(--surface-card);
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.filter-pill.active {
+  background: var(--ink);
+  color: var(--canvas);
+  border-color: var(--ink);
+}
+
+/* Status badge pills */
+.badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 3px 8px;
+  border-radius: var(--radius-pill);
+  font-size: 11px;
+  font-weight: 500;
+  font-family: var(--font-mono);
+}
+
+.badge.online {
+  background: rgba(31, 138, 101, 0.1);
+  color: var(--success);
+}
+
+.badge.offline {
+  background: var(--surface-strong);
+  color: var(--muted);
+}
+
+.badge.stale {
+  background: rgba(192, 133, 50, 0.1);
+  color: #8b7951;
+}
+
