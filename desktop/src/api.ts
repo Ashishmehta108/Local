@@ -7,7 +7,7 @@ export type FileResult = {
 export type EnrolledDevice = { deviceId: string; agentToken: string; commandSigningPublicKey: string };
 export type IndexedRoot = { id: string; deviceId: string; canonicalPath: string; enabled: boolean; lastScanAt: string | null };
 export type User = { id: string; email: string; role: "ADMIN" | "MEMBER"; createdAt: string };
-export type AuditEntry = { id: string; actorType: string; action: string; targetType: string; outcome: string; createdAt: string };
+export type AuditEntry = { id: string; actorType: string; action: string; targetType: string; targetId?: string; outcome: string; createdAt: string };
 
 export class CoordinatorApi {
   private session: Session | null;

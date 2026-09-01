@@ -40,7 +40,7 @@ export function App() {
         <nav aria-label="Primary">
           <button className={section === "search" ? "active" : ""} onClick={() => setSection("search")}>🔍 Search</button>
           <button className={section === "devices" ? "active" : ""} onClick={() => setSection("devices")}>💻 Computers</button>
-          <button className={section === "history" ? "active" : ""} onClick={() => setSection("history")}>📜 Activity History</button>
+          {session.user.role === "ADMIN" && <button className={section === "history" ? "active" : ""} onClick={() => setSection("history")}>📜 Activity</button>}
           {session.user.role === "ADMIN" && <button className={section === "admin" ? "active" : ""} onClick={() => setSection("admin")}>⚙️ Administration</button>}
           <button className={section === "settings" ? "active" : ""} onClick={() => setSection("settings")}>🔌 Connection</button>
         </nav>
