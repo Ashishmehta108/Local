@@ -279,8 +279,7 @@ export function createServer(config: Config, pool: Pool): FastifyInstance {
   });
 
   app.post("/api/v1/enrolments", async (request, reply) => {
-    const user = await requireAdmin(request, reply);
-    if (!user) return;
+    const user = await requireUser(request);
     const input = enrolmentSchema.parse(request.body);
     const code = opaqueToken(24);
     const expiresAt = new Date(Date.now() + input.expiresInMinutes * 60_000);
