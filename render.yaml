@@ -2,13 +2,14 @@ services:
   - type: web
     name: filefinder-coordinator
     runtime: node
-    plan: 0.5c-512mb
+    # Free keeps the first live deployment payment-free. Upgrade before
+    # commercial launch to avoid idle spin-down.
+    plan: free
+    region: singapore
     numInstances: 1
     buildCommand: corepack enable && pnpm install --frozen-lockfile && pnpm build
-    preDeployCommand: pnpm migrate
     startCommand: pnpm start
     healthCheckPath: /readyz
-    maxShutdownDelaySeconds: 60
     envVars:
       - key: NODE_VERSION
         value: 22.18.0
