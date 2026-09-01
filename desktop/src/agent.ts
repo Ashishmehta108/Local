@@ -17,22 +17,26 @@ type ConfigureAgent = {
 };
 
 export function isTauri() {
-  return "__TAURI_INTERNALS__" in window;
+  return typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
 }
 
 export function agentStatus(): Promise<AgentStatus> {
+  if (!isTauri()) return Promise.resolve({ configured: false, running: false });
   return invoke("agent_status");
 }
 
 export function startAgent(): Promise<AgentStatus> {
+  if (!isTauri()) return Promise.resolve({ configured: true, running: true });
   return invoke("start_agent");
 }
 
 export function createAgentIdentity(): Promise<AgentIdentity> {
+  if (!isTauri()) return Promise.resolve({ publicKey: "MCowBQYDK2VwAyEAMockPublicKeyForBrowserTesting12345=" });
   return invoke("create_agent_identity");
 }
 
 export function configureAgent(input: ConfigureAgent): Promise<AgentStatus> {
+  if (!isTauri()) return Promise.resolve({ configured: true, running: true });
   return invoke("configure_agent", {
     config: {
       coordinatorUrl: input.coordinatorUrl,
