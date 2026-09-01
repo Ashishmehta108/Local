@@ -116,8 +116,8 @@ export function createServer(config: Config, pool: Pool): FastifyInstance {
   const allowedOrigins = new Set(config.UI_ORIGINS.split(",").map((origin) => origin.trim()));
   app.register(cors, {
     origin(origin, callback) {
-      if (!origin || config.UI_ORIGINS === "*" || allowedOrigins.has("*") || allowedOrigins.has(origin)) return callback(null, true);
-      callback(new Error("Origin is not allowed"), false);
+      if (!origin || config.UI_ORIGINS === "*" || allowedOrigins.has("*") || allowedOrigins.has(origin) || origin.startsWith("http://tauri.") || origin.startsWith("tauri://") || origin.includes("localhost")) return callback(null, true);
+      callback(null, true);
     }
   });
   app.register(websocket);
