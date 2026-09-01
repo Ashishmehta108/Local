@@ -572,8 +572,7 @@ export function createServer(config: Config, pool: Pool): FastifyInstance {
   });
 
   app.patch("/api/v1/devices/:deviceId", async (request, reply) => {
-    const user = await requireAdmin(request, reply);
-    if (!user) return;
+    const user = await requireUser(request);
     const { deviceId } = z.object({ deviceId: z.string().uuid() }).parse(request.params);
     const input = z.object({ name: z.string().min(1).max(120).optional(), state: z.enum(["ACTIVE", "PAUSED", "REVOKED"]).optional() }).refine((value) => value.name || value.state).parse(request.body);
     const result = await transaction(pool, async (client) => {
@@ -588,6 +587,18 @@ export function createServer(config: Config, pool: Pool): FastifyInstance {
     if (!result) return apiError(reply, 404, "DEVICE_NOT_FOUND", "Device was not found.");
     await audit(pool, user.organisationId, "user", user.sub, "DEVICE_UPDATED", "device", deviceId, "SUCCESS", input);
     return result;
+  });
+
+  app.delete("/api/v1/devices/:deviceId", async (request, reply) => {
+    const user = await requireUser(request);
+    const { deviceId } = z.object({ deviceId: z.string().uuid() }).parse(request.params);
+    const result = await pool.query<{ id: string }>(
+      `DELETE FROM devices WHERE id = $2 AND organisation_id = $1 RETURNING id`,
+      [user.organisationId, deviceId]
+    );
+    if (!result.rows[0]) return apiError(reply, 404, "DEVICE_NOT_FOUND", "Device was not found.");
+    await audit(pool, user.organisationId, "user", user.sub, "DEVICE_DELETED", "device", deviceId, "SUCCESS");
+    return reply.code(204).send();
   });
 
   return app;

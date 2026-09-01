@@ -57,6 +57,10 @@ export class CoordinatorApi {
     return this.request(`/api/v1/devices/${deviceId}`, { method: "PATCH", body: JSON.stringify(update) });
   }
 
+  deleteDevice(deviceId: string) {
+    return this.request(`/api/v1/devices/${deviceId}`, { method: "DELETE" });
+  }
+
   async request<T>(path: string, init: RequestInit = {}, authenticated = true, allowRefresh = true): Promise<T> {
     const response = await fetch(`${this.baseUrl.replace(/\/$/, "")}${path}`, {
       ...init,
