@@ -189,7 +189,8 @@ export function createServer(config: Config, pool: Pool): FastifyInstance {
     try {
       await pool.query("SELECT 1");
       return { status: "ready" };
-    } catch {
+    } catch (error) {
+      app.log.error({ error }, "database readiness check failed");
       return reply.code(503).send({ status: "unavailable" });
     }
   });
