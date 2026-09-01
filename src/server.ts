@@ -322,8 +322,7 @@ export function createServer(config: Config, pool: Pool): FastifyInstance {
   });
 
   app.post("/api/v1/devices/:deviceId/roots", async (request, reply) => {
-    const user = await requireAdmin(request, reply);
-    if (!user) return;
+    const user = await requireUser(request);
     const { deviceId } = z.object({ deviceId: z.string().uuid() }).parse(request.params);
     const input = rootSchema.parse(request.body);
     const result = await pool.query<{ id: string }>(
