@@ -130,14 +130,19 @@ function Connection({ coordinator, api, isAdmin, onSignOut }: { coordinator: str
   
   async function selectFolder() {
     try {
-      const { open } = await import("@tauri-apps/plugin-dialog");
-      const selected = await open({ directory: true, multiple: false, title: "Select Approved Folder to Index" });
-      if (selected && typeof selected === "string") {
-        field("rootPath", selected);
+      if (typeof window !== "undefined" && (window as unknown as { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__) {
+        const { open } = await import("@tauri-apps/plugin-dialog");
+        const selected = await open({ directory: true, multiple: false, title: "Select Approved Folder to Index" });
+        if (selected && typeof selected === "string") {
+          field("rootPath", selected);
+          return;
+        }
       }
     } catch {
-      // Fallback if dialog plugin is not running in pure web mode
+      // Ignored
     }
+    const path = window.prompt("Enter approved folder path (e.g. D:\\Projects or C:\\Users\\Name\\Documents):", form.rootPath || "C:\\Users\\");
+    if (path) field("rootPath", path);
   }
 
   async function enrol(event: FormEvent) {
