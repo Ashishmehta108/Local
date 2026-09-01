@@ -308,11 +308,21 @@ export function createServer(config: Config, pool: Pool): FastifyInstance {
       if (!enrolment.rows[0]) return null;
       await client.query("UPDATE enrolments SET consumed_at = now() WHERE id = $1", [enrolment.rows[0].id]);
       const device = await client.query<{ id: string }>(
-        "INSERT INTO devices (organisation_id, name, os, public_key, certificate_fingerprint) VALUES ($1, $2, $3, $4, $5) RETURNING id",
+        `INSERT INTO devices (organisation_id, name, os, public_key, certificate_fingerprint)
+         VALUES ($1, $2, $3, $4, $5)
+         ON CONFLICT (organisation_id, name)
+         DO UPDATE SET os = EXCLUDED.os, public_key = EXCLUDED.public_key, certificate_fingerprint = EXCLUDED.certificate_fingerprint, state = 'ACTIVE'
+         RETURNING id`,
         [enrolment.rows[0].organisation_id, input.name, input.os, input.publicKey, input.certificateFingerprint?.toLowerCase() ?? null]
       );
       const agentToken = opaqueToken();
-      await client.query("INSERT INTO device_tokens (device_id, token_hash) VALUES ($1, $2)", [device.rows[0].id, tokenHash(agentToken)]);
+      await client.query(
+        `INSERT INTO device_tokens (device_id, token_hash)
+         VALUES ($1, $2)
+         ON CONFLICT (device_id)
+         DO UPDATE SET token_hash = EXCLUDED.token_hash, revoked_at = NULL, created_at = now()`,
+        [device.rows[0].id, tokenHash(agentToken)]
+      );
       await audit(client, enrolment.rows[0].organisation_id, "device", device.rows[0].id, "DEVICE_ENROLLED", "device", device.rows[0].id, "SUCCESS");
       return { deviceId: device.rows[0].id, agentToken };
     });
