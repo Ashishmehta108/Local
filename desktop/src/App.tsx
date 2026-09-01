@@ -60,7 +60,7 @@ export function App() {
       </aside>
       <main>
         {section === "search" && <Search api={api} />}
-        {section === "devices" && <Devices api={api} isAdmin={session.user.role === "ADMIN"} />}
+        {section === "devices" && <Devices api={api} isAdmin={session.user.role === "ADMIN"} coordinator={coordinator} onGoToConnection={() => setSection("settings")} />}
         {section === "history" && <ActivityHistory api={api} />}
         {section === "admin" && <Administration api={api} />}
         {section === "settings" && <Connection coordinator={coordinator} api={api} isAdmin={session.user.role === "ADMIN"} onSignOut={() => { sessionStorage.removeItem("session"); setSession(null); }} />}
@@ -105,23 +105,35 @@ function Search({ api }: { api: CoordinatorApi }) {
   </div>;
 }
 
-function Devices({ api, isAdmin }: { api: CoordinatorApi; isAdmin: boolean }) {
+function Devices({ api, isAdmin, coordinator, onGoToConnection }: { api: CoordinatorApi; isAdmin: boolean; coordinator: string; onGoToConnection: () => void }) {
   const [items, setItems] = useState<Device[]>([]); const [roots, setRoots] = useState<IndexedRoot[]>([]); const [error, setError] = useState("");
-  const [enrolment, setEnrolment] = useState<{ code: string; expiresAt: string } | null>(() => {
-    try { const saved = localStorage.getItem("latest_enrolment"); return saved ? JSON.parse(saved) : null; } catch { return null; }
-  });
-  const load = useEffectEvent(async () => { try { const [devices, indexedRoots] = await Promise.all([api.devices(), api.roots()]); setItems(devices.items); setRoots(indexedRoots.items); } catch (cause) { setError(cause instanceof Error ? cause.message : "Could not load devices"); } });
-  useEffect(() => { void load(); const timer = setInterval(() => void load(), 30_000); return () => clearInterval(timer); }, []);
-  async function pause(device: Device) { await api.updateDevice(device.id, { state: device.state === "PAUSED" ? "ACTIVE" : "PAUSED" }); await load(); }
-  async function createCode() {
+  const [enrolModal, setEnrolModal] = useState(false);
+  const [agentStat, setAgentStat] = useState<AgentStatus | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [form, setForm] = useState({ name: "Work PC", rootPath: "" });
+
+  const load = useEffectEvent(async () => {
     try {
-      const created = await api.createEnrolment();
-      setEnrolment(created);
-      localStorage.setItem("latest_enrolment", JSON.stringify(created));
+      const [devices, indexedRoots] = await Promise.all([api.devices(), api.roots()]);
+      setItems(devices.items);
+      setRoots(indexedRoots.items);
+      if (isTauri()) {
+        const stat = await agentStatus();
+        setAgentStat(stat);
+      }
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "Could not create enrolment");
+      setError(cause instanceof Error ? cause.message : "Could not load devices");
     }
-  }
+  });
+
+  useEffect(() => {
+    void load();
+    const timer = setInterval(() => void load(), 5_000);
+    return () => clearInterval(timer);
+  }, []);
+
+  async function pause(device: Device) { await api.updateDevice(device.id, { state: device.state === "PAUSED" ? "ACTIVE" : "PAUSED" }); await load(); }
+  
   async function removeDevice(device: Device) {
     if (!window.confirm(`Are you sure you want to remove ${device.name}? This computer will be un-enrolled.`)) return;
     try {
@@ -131,8 +143,141 @@ function Devices({ api, isAdmin }: { api: CoordinatorApi; isAdmin: boolean }) {
       setError(cause instanceof Error ? cause.message : "Could not delete device");
     }
   }
+
   async function toggleRoot(root: IndexedRoot) { if (root.enabled && !window.confirm(`Stop indexing ${root.canonicalPath}? Existing metadata will be hidden.`)) return; await api.updateRoot(root.id, !root.enabled); await load(); }
-  return <div className="page"><header><div><div className="eyebrow">FLEET</div><h1>Connected computers</h1></div><div className="header-actions"><div className="privacy-note">{items.length} enrolled</div><button className="quiet" onClick={createCode}>New computer code</button></div></header>{enrolment && <div className="enrolment-code"><span>One-time code</span><strong>{enrolment.code}</strong><button className="quiet" style={{ padding: "4px 8px", fontSize: "11px" }} onClick={() => navigator.clipboard.writeText(enrolment.code)}>Copy</button><small>Expires {new Date(enrolment.expiresAt).toLocaleTimeString()}</small></div>}{error && <div className="error">{error}</div>}<section className="device-grid">{items.map((device) => <article className="device" key={device.id}><div className="device-top"><span className={`device-orb ${device.presence.toLowerCase()}`} /><span className="device-state">{device.presence}</span></div><h2>{device.name}</h2><p>{device.os}</p><dl><div><dt>Last event</dt><dd>#{device.lastSequence}</dd></div><div><dt>Last seen</dt><dd>{device.lastSeenAt ? new Date(device.lastSeenAt).toLocaleTimeString() : "Never"}</dd></div></dl><div className="root-list">{roots.filter((root) => root.deviceId === device.id).map((root) => <button key={root.id} disabled={!isAdmin} onClick={() => toggleRoot(root)}><span>{root.canonicalPath}</span><b>{root.enabled ? "INDEXED" : "DISABLED"}</b></button>)}</div><div style={{ display: "flex", gap: "6px", marginTop: "8px" }}>{isAdmin && device.state !== "REVOKED" && <button className="quiet" onClick={() => pause(device)}>{device.state === "PAUSED" ? "Resume" : "Pause"}</button>}<button className="quiet" style={{ color: "#a83232", borderColor: "#e0b8b8" }} onClick={() => removeDevice(device)}>Delete</button></div></article>)}</section></div>;
+
+  async function selectFolder() {
+    try {
+      if (typeof window !== "undefined" && (window as unknown as { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__) {
+        const { open } = await import("@tauri-apps/plugin-dialog");
+        const selected = await open({ directory: true, multiple: false, title: "Select Folder to Index" });
+        if (selected && typeof selected === "string") {
+          setForm((prev) => ({ ...prev, rootPath: selected }));
+          return;
+        }
+      }
+    } catch { /* Ignored */ }
+    const path = window.prompt("Enter folder path (e.g. C:\\Users\\Documents):", form.rootPath || "C:\\Users\\");
+    if (path) setForm((prev) => ({ ...prev, rootPath: path }));
+  }
+
+  async function oneClickEnrol(e: FormEvent) {
+    e.preventDefault();
+    if (!form.rootPath) { setError("Please select an approved folder path."); return; }
+    setBusy(true);
+    setError("");
+    try {
+      const { code } = await api.createEnrolment();
+      const { publicKey } = await createAgentIdentity();
+      const enrolled = await api.enrolDevice(code, form.name, publicKey);
+      const root = await api.addRoot(enrolled.deviceId, form.rootPath);
+      await configureAgent({
+        coordinatorUrl: coordinator,
+        agentToken: enrolled.agentToken,
+        commandSigningPublicKey: enrolled.commandSigningPublicKey,
+        requireRequestSignatures: REQUIRE_AGENT_SIGNATURES,
+        requireClientCertificate: false,
+        clientCertificatePem: null,
+        clientPrivateKeyPem: null,
+        coordinatorCaPem: null,
+        rootId: root.id,
+        rootPath: form.rootPath
+      });
+      await startAgent();
+      setEnrolModal(false);
+      await load();
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Enrolment failed");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="page">
+      <header>
+        <div>
+          <div className="eyebrow">FLEET</div>
+          <h1>Connected computers</h1>
+        </div>
+        <div className="header-actions">
+          <div className="privacy-note">{items.length} enrolled</div>
+          <button className="primary" onClick={() => setEnrolModal(true)}>+ Connect this computer</button>
+        </div>
+      </header>
+
+      {error && <div className="error">{error}</div>}
+
+      {enrolModal && (
+        <div style={{ background: "var(--surface-card)", border: "1px solid var(--hairline)", borderRadius: "var(--radius-lg)", padding: "24px", marginBottom: "24px" }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "16px" }}>
+            <div>
+              <div className="eyebrow">STEP 1 OF 1</div>
+              <h2 style={{ fontSize: "18px", margin: "4px 0 0", color: "var(--ink)" }}>Connect & Start Indexing</h2>
+            </div>
+            <button className="quiet" onClick={() => setEnrolModal(false)}>Cancel</button>
+          </div>
+          <p style={{ color: "var(--muted)", fontSize: "13px", margin: "0 0 16px" }}>
+            We'll automatically generate a secure identity, register this machine, and start the background indexer.
+          </p>
+          <form onSubmit={oneClickEnrol} style={{ display: "grid", gap: "14px" }}>
+            <label style={{ display: "grid", gap: "6px", fontSize: "12px", color: "var(--muted)", fontFamily: "var(--font-mono)" }}>
+              Computer name
+              <input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} style={{ padding: "10px 12px", borderRadius: "8px", border: "1px solid var(--hairline)", background: "var(--canvas-soft)", color: "var(--ink)" }} required />
+            </label>
+            <label style={{ display: "grid", gap: "6px", fontSize: "12px", color: "var(--muted)", fontFamily: "var(--font-mono)" }}>
+              Approved folder to index
+              <div style={{ display: "flex", gap: "8px" }}>
+                <input placeholder="C:\Users\Documents or D:\Projects" value={form.rootPath} onChange={(e) => setForm({ ...form, rootPath: e.target.value })} style={{ flex: 1, padding: "10px 12px", borderRadius: "8px", border: "1px solid var(--hairline)", background: "var(--canvas-soft)", color: "var(--ink)" }} required />
+                {isTauri() && <button type="button" className="quiet" onClick={selectFolder}>Browse...</button>}
+              </div>
+            </label>
+            <div style={{ display: "flex", gap: "10px", marginTop: "8px" }}>
+              <button className="primary" disabled={busy}>{busy ? "Connecting & Indexing..." : "Start indexing now"}</button>
+              <button type="button" className="quiet" onClick={onGoToConnection}>Advanced options</button>
+            </div>
+          </form>
+        </div>
+      )}
+
+      {items.length === 0 ? (
+        <div style={{ textAlign: "center", padding: "64px 20px", background: "var(--surface-card)", border: "1px solid var(--hairline)", borderRadius: "var(--radius-lg)" }}>
+          <h2 style={{ fontSize: "20px", color: "var(--ink)", marginBottom: "8px" }}>No computers enrolled yet</h2>
+          <p style={{ color: "var(--muted)", fontSize: "14px", marginBottom: "20px" }}>Click the button below to connect this computer and choose a folder to index.</p>
+          <button className="primary" onClick={() => setEnrolModal(true)}>+ Connect this computer</button>
+        </div>
+      ) : (
+        <section className="device-grid">
+          {items.map((device) => (
+            <article className="device" key={device.id}>
+              <div className="device-top">
+                <span className={`device-orb ${device.presence.toLowerCase()}`} />
+                <span className="device-state" style={{ fontWeight: 600, color: device.presence === "ONLINE" ? "var(--success)" : "var(--muted)" }}>{device.presence}</span>
+              </div>
+              <h2>{device.name}</h2>
+              <p>{device.os}</p>
+              <dl>
+                <div><dt>Last event</dt><dd>#{device.lastSequence}</dd></div>
+                <div><dt>Last seen</dt><dd>{device.lastSeenAt ? new Date(device.lastSeenAt).toLocaleTimeString() : "Never"}</dd></div>
+              </dl>
+              <div className="root-list">
+                {roots.filter((root) => root.deviceId === device.id).map((root) => (
+                  <button key={root.id} disabled={!isAdmin} onClick={() => toggleRoot(root)}>
+                    <span>{root.canonicalPath}</span>
+                    <b style={{ color: root.enabled ? "var(--success)" : "var(--muted)" }}>{root.enabled ? "INDEXED" : "DISABLED"}</b>
+                  </button>
+                ))}
+              </div>
+              <div style={{ display: "flex", gap: "6px", marginTop: "12px", borderTop: "1px solid var(--hairline)", paddingTop: "12px" }}>
+                {isAdmin && device.state !== "REVOKED" && <button className="quiet" onClick={() => pause(device)}>{device.state === "PAUSED" ? "Resume" : "Pause"}</button>}
+                <button className="quiet" style={{ color: "var(--error)", borderColor: "var(--hairline-strong)", marginLeft: "auto" }} onClick={() => removeDevice(device)}>Delete</button>
+              </div>
+            </article>
+          ))}
+        </section>
+      )}
+    </div>
+  );
 }
 
 function ActivityHistory({ api }: { api: CoordinatorApi }) {
