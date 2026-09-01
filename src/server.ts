@@ -474,16 +474,19 @@ export function createServer(config: Config, pool: Pool): FastifyInstance {
                    WHEN d.last_seen_at >= now() - interval '5 minutes' THEN 'STALE'
                    ELSE 'OFFLINE' END AS presence,
               r.canonical_path AS "rootPath",
-              GREATEST(extensions.similarity(f.normalized_name, $2), extensions.similarity(f.normalized_relative_path, $2)) AS score
+              CASE WHEN f.normalized_name ILIKE '%' || $2 || '%' THEN 1.0 ELSE 0.5 END AS score
          FROM files f
          JOIN devices d ON d.id = f.device_id
          JOIN indexed_roots r ON r.id = f.root_id
         WHERE f.organisation_id = $1 AND f.deleted_at IS NULL AND d.state = 'ACTIVE' AND r.enabled = true
           AND ($3::uuid IS NULL OR d.id = $3)
           AND ($4::text IS NULL OR f.extension = $4)
-          AND (f.normalized_name % $2 OR f.normalized_relative_path % $2 OR f.normalized_name LIKE $2 || '%')
-        ORDER BY CASE WHEN f.normalized_name = $2 THEN 0 WHEN f.normalized_name LIKE $2 || '%' THEN 1 ELSE 2 END,
-                 score DESC, f.normalized_name ASC
+          AND (
+            f.normalized_name ILIKE '%' || $2 || '%'
+            OR f.normalized_relative_path ILIKE '%' || $2 || '%'
+          )
+        ORDER BY CASE WHEN f.normalized_name = $2 THEN 0 WHEN f.normalized_name ILIKE $2 || '%' THEN 1 ELSE 2 END,
+                 f.normalized_name ASC
         LIMIT $5`,
       [user.organisationId, term, input.deviceId ?? null, input.extension?.toLowerCase() ?? null, input.limit]
     );
