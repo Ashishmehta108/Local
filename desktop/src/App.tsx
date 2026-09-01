@@ -1,6 +1,8 @@
 import { FormEvent, startTransition, useEffect, useEffectEvent, useState } from "react";
 import { CoordinatorApi, type AuditEntry, type Device, type FileResult, type IndexedRoot, type Session, type User } from "./api";
 import { agentStatus, configureAgent, createAgentIdentity, isTauri, startAgent, type AgentStatus } from "./agent";
+import { HugeiconsIcon } from '@hugeicons/react';
+import { Search01Icon, ComputerIcon, Clock04Icon, Settings02Icon, PlugSocketIcon } from '@hugeicons/core-free-icons';
 
 const DEFAULT_COORDINATOR = import.meta.env.VITE_COORDINATOR_URL?.trim() || "https://filefinder-coordinator.onrender.com";
 const REQUIRE_AGENT_CERTIFICATE = import.meta.env.VITE_REQUIRE_AGENT_CERTIFICATE !== "false";
@@ -23,6 +25,13 @@ export function App() {
   const [coordinator, setCoordinator] = useState(localStorage.getItem("coordinator") ?? DEFAULT_COORDINATOR);
   const [session, setSession] = useState<Session | null>(savedSession);
   const [section, setSection] = useState<"search" | "devices" | "admin" | "history" | "settings">("search");
+  const [theme, setTheme] = useState(localStorage.getItem("theme") || "light");
+
+  useEffect(() => {
+    document.documentElement.dataset.theme = theme;
+    localStorage.setItem("theme", theme);
+  }, [theme]);
+
   const api = new CoordinatorApi(coordinator, session, signedIn);
 
   function signedIn(next: Session) {
@@ -38,13 +47,16 @@ export function App() {
       <aside className="rail">
         <div className="brand"><span className="brand-mark">F</span><span>FileFinder</span></div>
         <nav aria-label="Primary">
-          <button className={section === "search" ? "active" : ""} onClick={() => setSection("search")}>🔍 Search</button>
-          <button className={section === "devices" ? "active" : ""} onClick={() => setSection("devices")}>💻 Computers</button>
-          {session.user.role === "ADMIN" && <button className={section === "history" ? "active" : ""} onClick={() => setSection("history")}>📜 Activity</button>}
-          {session.user.role === "ADMIN" && <button className={section === "admin" ? "active" : ""} onClick={() => setSection("admin")}>⚙️ Administration</button>}
-          <button className={section === "settings" ? "active" : ""} onClick={() => setSection("settings")}>🔌 Connection</button>
+          <button className={section === "search" ? "active" : ""} onClick={() => setSection("search")}><HugeiconsIcon icon={Search01Icon} size={16} />Search</button>
+          <button className={section === "devices" ? "active" : ""} onClick={() => setSection("devices")}><HugeiconsIcon icon={ComputerIcon} size={16} />Computers</button>
+          {session.user.role === "ADMIN" && <button className={section === "history" ? "active" : ""} onClick={() => setSection("history")}><HugeiconsIcon icon={Clock04Icon} size={16} />Activity</button>}
+          {session.user.role === "ADMIN" && <button className={section === "admin" ? "active" : ""} onClick={() => setSection("admin")}><HugeiconsIcon icon={Settings02Icon} size={16} />Administration</button>}
+          <button className={section === "settings" ? "active" : ""} onClick={() => setSection("settings")}><HugeiconsIcon icon={PlugSocketIcon} size={16} />Connection</button>
         </nav>
-        <div className="rail-foot"><span className="status-dot" />Secure connection</div>
+        <div className="rail-foot">
+          <span className="status-dot" />Secure connection
+          <button className="theme-toggle" onClick={() => setTheme(theme === "light" ? "dark" : "light")}>{theme === "light" ? "Dark" : "Light"}</button>
+        </div>
       </aside>
       <main>
         {section === "search" && <Search api={api} />}
