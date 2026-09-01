@@ -498,7 +498,7 @@ export function createServer(config: Config, pool: Pool): FastifyInstance {
                    WHEN last_seen_at >= now() - interval '60 seconds' THEN 'ONLINE'
                    WHEN last_seen_at >= now() - interval '5 minutes' THEN 'STALE'
                    ELSE 'OFFLINE' END AS presence
-         FROM devices WHERE organisation_id = $1 ORDER BY name`, [user.organisationId]
+         FROM devices WHERE organisation_id = $1 AND state <> 'REVOKED' ORDER BY name`, [user.organisationId]
     );
     return { items: result.rows };
   });
@@ -601,12 +601,17 @@ export function createServer(config: Config, pool: Pool): FastifyInstance {
   app.delete("/api/v1/devices/:deviceId", async (request, reply) => {
     const user = await requireUser(request);
     const { deviceId } = z.object({ deviceId: z.string().uuid() }).parse(request.params);
-    const result = await pool.query<{ id: string }>(
-      `DELETE FROM devices WHERE id = $2 AND organisation_id = $1 RETURNING id`,
-      [user.organisationId, deviceId]
-    );
-    if (!result.rows[0]) return apiError(reply, 404, "DEVICE_NOT_FOUND", "Device was not found.");
-    await audit(pool, user.organisationId, "user", user.sub, "DEVICE_DELETED", "device", deviceId, "SUCCESS");
+    const result = await transaction(pool, async (client) => {
+      const updated = await client.query<{ id: string }>(
+        `UPDATE devices SET state = 'REVOKED' WHERE id = $2 AND organisation_id = $1 RETURNING id`,
+        [user.organisationId, deviceId]
+      );
+      if (!updated.rows[0]) return null;
+      await client.query("UPDATE device_tokens SET revoked_at = now() WHERE device_id = $1 AND revoked_at IS NULL", [deviceId]);
+      return updated.rows[0];
+    });
+    if (!result) return apiError(reply, 404, "DEVICE_NOT_FOUND", "Device was not found.");
+    await audit(pool, user.organisationId, "user", user.sub, "DEVICE_REVOKED", "device", deviceId, "SUCCESS");
     return reply.code(204).send();
   });
 

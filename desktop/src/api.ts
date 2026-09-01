@@ -62,9 +62,14 @@ export class CoordinatorApi {
   }
 
   async request<T>(path: string, init: RequestInit = {}, authenticated = true, allowRefresh = true): Promise<T> {
+    const headers: Record<string, string> = {
+      ...(init.body ? { "content-type": "application/json" } : {}),
+      ...(authenticated && this.session?.accessToken ? { authorization: `Bearer ${this.session.accessToken}` } : {}),
+      ...(init.headers as Record<string, string> || {})
+    };
     const response = await fetch(`${this.baseUrl.replace(/\/$/, "")}${path}`, {
       ...init,
-      headers: { "content-type": "application/json", ...(authenticated && this.session?.accessToken ? { authorization: `Bearer ${this.session.accessToken}` } : {}), ...init.headers }
+      headers
     });
     if (response.status === 401 && authenticated && allowRefresh && this.session?.refreshToken) {
       const renewed = await this.request<Session>("/api/v1/auth/refresh", { method: "POST", body: JSON.stringify({ refreshToken: this.session.refreshToken }) }, false, false);
