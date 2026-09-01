@@ -113,12 +113,11 @@ async function requireAgent(request: FastifyRequest, pool: Pool, config: Config,
 export function createServer(config: Config, pool: Pool): FastifyInstance {
   const app = Fastify({ logger: config.NODE_ENV !== "test", bodyLimit: 4 * 1024 * 1024, trustProxy: config.TRUST_PROXY });
   app.register(jwt, { secret: config.JWT_SECRET });
-  const allowedOrigins = new Set(config.UI_ORIGINS.split(",").map((origin) => origin.trim()));
   app.register(cors, {
-    origin(origin, callback) {
-      if (!origin || config.UI_ORIGINS === "*" || allowedOrigins.has("*") || allowedOrigins.has(origin) || origin.startsWith("http://tauri.") || origin.startsWith("tauri://") || origin.includes("localhost")) return callback(null, true);
-      callback(null, true);
-    }
+    origin: true,
+    methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+    allowedHeaders: ["Content-Type", "Authorization", "X-Requested-With", "Accept", "Origin"],
+    credentials: true
   });
   app.register(websocket);
   app.register(rateLimit, { global: false, max: 100, timeWindow: "1 minute", ipv6Subnet: 64 });
