@@ -328,6 +328,7 @@ export function createServer(config: Config, pool: Pool): FastifyInstance {
     const result = await pool.query<{ id: string }>(
       `INSERT INTO indexed_roots (organisation_id, device_id, canonical_path)
        SELECT $1, id, $3 FROM devices WHERE id = $2 AND organisation_id = $1 AND state = 'ACTIVE'
+       ON CONFLICT (device_id, canonical_path) DO UPDATE SET enabled = true
        RETURNING id`,
       [user.organisationId, deviceId, input.canonicalPath]
     );
