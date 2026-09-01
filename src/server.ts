@@ -711,6 +711,10 @@ async function ingestBatch(client: PoolClient, agent: Agent, events: z.infer<typ
     }
   }
   const acknowledgedSequence = pending.at(-1)!.sequence;
+  const rootIds = [...new Set(pending.map((event) => event.rootId))];
+  if (rootIds.length > 0) {
+    await client.query("UPDATE indexed_roots SET last_scan_at = now() WHERE id = ANY($1::uuid[])", [rootIds]);
+  }
   await client.query("UPDATE devices SET last_sequence = $2, last_seen_at = now() WHERE id = $1", [agent.deviceId, acknowledgedSequence]);
   return { kind: "ack" as const, acknowledgedSequence };
 }
